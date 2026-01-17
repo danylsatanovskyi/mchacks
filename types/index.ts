@@ -10,10 +10,10 @@ export interface User {
 // Event types
 export interface Event {
   id: string;
-  league: string;
-  teams: string[];
-  start_time: string;
-  status: "upcoming" | "live" | "finished";
+  league?: string;
+  teams?: string[];
+  start_time?: string;
+  status?: "upcoming" | "live" | "finished";
   result?: EventResult;
 }
 
@@ -23,7 +23,7 @@ export interface EventResult {
 }
 
 // Bet types
-export type BetType = "binary" | "ranked";
+export type BetType = "binary" | "multiple-choice" | "target-proximity";
 
 export interface Bet {
   id: string;

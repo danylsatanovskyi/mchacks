@@ -15,6 +15,9 @@ import { useAuth } from "../contexts/AuthContext";
 // Dummy events for development
 const dummyEvents: Event[] = [
   {
+    id: "eventcustom",
+  },
+  {
     id: "event1",
     league: "NBA",
     teams: ["Lakers", "Warriors"],
@@ -34,7 +37,7 @@ export const CreateBetScreen: React.FC = () => {
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
   const [betType, setBetType] = useState<BetType>("binary");
   const [title, setTitle] = useState("");
-  const [options, setOptions] = useState<string[]>(["", ""]);
+  const [options, setOptions] = useState<string[]>([""]);
   const [stake, setStake] = useState("10");
   const [events, setEvents] = useState<Event[]>(dummyEvents);
   const [loading, setLoading] = useState(false);
@@ -62,7 +65,7 @@ export const CreateBetScreen: React.FC = () => {
   };
 
   const addOption = () => {
-    if (betType === "ranked" && options.length < 10) {
+    if (betType === "multiple-choice" && options.length < 10) {
       setOptions([...options, ""]);
     }
   };
@@ -78,8 +81,10 @@ export const CreateBetScreen: React.FC = () => {
     setBetType(type);
     if (type === "binary") {
       setOptions(["", ""]);
-    } else if (type === "ranked" && options.length < 3) {
+    } else if (type === "multiple-choice" && options.length < 3) {
       setOptions(["", "", ""]);
+    } else if (type === "target-proximity") {
+      setOptions([""]); // Single option for target proximity
     }
   };
 
@@ -116,7 +121,7 @@ export const CreateBetScreen: React.FC = () => {
       //   options: validOptions,
       //   stake: stakeAmount,
       // });
-      
+
       Alert.alert("Success", "Bet created successfully!");
       // Reset form
       setTitle("");
@@ -134,7 +139,11 @@ export const CreateBetScreen: React.FC = () => {
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <Text style={styles.sectionTitle}>Select Event</Text>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.eventScroll}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.eventScroll}
+      >
         {events.map((event) => (
           <TouchableOpacity
             key={event.id}
@@ -144,9 +153,22 @@ export const CreateBetScreen: React.FC = () => {
             ]}
             onPress={() => setSelectedEvent(event)}
           >
-            <Text style={styles.eventLeague}>{event.league}</Text>
-            <Text style={styles.eventTeams}>{event.teams.join(" vs ")}</Text>
-            <Text style={styles.eventStatus}>{event.status}</Text>
+            {event.id == "eventcustom" ? (
+              <>
+                <View style={styles.eventPlusContainer}>
+                  <Text style={styles.eventPlus}>+</Text>
+                </View>
+                <Text style={styles.eventLeague}>Custom Event</Text>
+              </>
+            ) : (
+              <>
+                <Text style={styles.eventLeague}>{event.league}</Text>
+                <Text style={styles.eventTeams}>
+                  {event.teams?.join(" vs ")}
+                </Text>
+                <Text style={styles.eventStatus}>{event.status}</Text>
+              </>
+            )}
           </TouchableOpacity>
         ))}
       </ScrollView>
@@ -154,19 +176,51 @@ export const CreateBetScreen: React.FC = () => {
       <Text style={styles.sectionTitle}>Bet Type</Text>
       <View style={styles.betTypeContainer}>
         <TouchableOpacity
-          style={[styles.betTypeButton, betType === "binary" && styles.betTypeButtonActive]}
+          style={[
+            styles.betTypeButton,
+            betType === "binary" && styles.betTypeButtonActive,
+          ]}
           onPress={() => handleBetTypeChange("binary")}
         >
-          <Text style={[styles.betTypeText, betType === "binary" && styles.betTypeTextActive]}>
-            Binary
+          <Text
+            style={[
+              styles.betTypeText,
+              betType === "binary" && styles.betTypeTextActive,
+            ]}
+          >
+            Moneyline
           </Text>
         </TouchableOpacity>
         <TouchableOpacity
-          style={[styles.betTypeButton, betType === "ranked" && styles.betTypeButtonActive]}
-          onPress={() => handleBetTypeChange("ranked")}
+          style={[
+            styles.betTypeButton,
+            betType === "multiple-choice" && styles.betTypeButtonActive,
+          ]}
+          onPress={() => handleBetTypeChange("multiple-choice")}
         >
-          <Text style={[styles.betTypeText, betType === "ranked" && styles.betTypeTextActive]}>
-            Ranked (1st/2nd/3rd)
+          <Text
+            style={[
+              styles.betTypeText,
+              betType === "multiple-choice" && styles.betTypeTextActive,
+            ]}
+          >
+            n-Way Moneyline
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[
+            styles.betTypeButton,
+            betType === "target-proximity" && styles.betTypeButtonActive,
+          ]}
+          onPress={() => handleBetTypeChange("target-proximity")}
+        >
+          <Text
+            style={[
+              styles.betTypeText,
+              betType === "target-proximity" && styles.betTypeTextActive,
+            ]}
+          >
+            Target Proximity
           </Text>
         </TouchableOpacity>
       </View>
@@ -176,18 +230,24 @@ export const CreateBetScreen: React.FC = () => {
         style={styles.input}
         value={title}
         onChangeText={setTitle}
-        placeholder="e.g., Who will win?"
+        placeholder={
+          betType === "target-proximity"
+            ? "e.g., What will the score be?"
+            : "e.g., Who will win?"
+        }
         placeholderTextColor="#666"
       />
 
       <Text style={styles.sectionTitle}>Options</Text>
       {options.map((option, index) => (
-        <View key={index} style={styles.optionRow}>
+        <View key={`bet-option-${index}`} style={styles.optionRow}>
           <TextInput
             style={styles.optionInput}
             value={option}
             onChangeText={(value) => handleOptionChange(index, value)}
-            placeholder={`Option ${index + 1}`}
+            placeholder={
+              betType === "target-proximity" ? "Target" : `Option ${index + 1}`
+            }
             placeholderTextColor="#666"
           />
           {options.length > 2 && (
@@ -197,7 +257,7 @@ export const CreateBetScreen: React.FC = () => {
           )}
         </View>
       ))}
-      {betType === "ranked" && options.length < 10 && (
+      {betType === "multiple-choice" && options.length < 10 && (
         <TouchableOpacity style={styles.addButton} onPress={addOption}>
           <Text style={styles.addButtonText}>+ Add Option</Text>
         </TouchableOpacity>
@@ -257,6 +317,24 @@ const styles = StyleSheet.create({
     borderColor: "#007AFF",
     backgroundColor: "#252525",
   },
+  eventPlusContainer: {
+    width: 24,
+    height: 24,
+    borderRadius: 15,
+    borderWidth: 0.5,
+    borderColor: "#007AFF",
+    marginBottom: 4,
+    position: "relative",
+  },
+  eventPlus: {
+    fontSize: 18,
+    fontWeight: "300",
+    color: "#007AFF",
+    position: "absolute",
+    top: "50%",
+    left: "50%",
+    transform: [{ translateX: -5.5 }, { translateY: -11.75 }],
+  },
   eventLeague: {
     fontSize: 12,
     fontWeight: "600",
@@ -291,7 +369,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#1a2a3a",
   },
   betTypeText: {
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: "600",
     color: "#aaa",
   },

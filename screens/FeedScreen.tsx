@@ -28,7 +28,7 @@ const dummyBets: Bet[] = [
     id: "2",
     creator_id: "user2",
     event_id: "event2",
-    type: "ranked",
+    type: "multiple-choice",
     title: "Top 3 finishers - Formula 1",
     options: ["Hamilton", "Verstappen", "Leclerc", "Sainz"],
     stake: 20,
@@ -96,8 +96,8 @@ export const FeedScreen: React.FC = () => {
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.list}
         refreshControl={
-          <RefreshControl 
-            refreshing={refreshing} 
+          <RefreshControl
+            refreshing={refreshing}
             onRefresh={onRefresh}
             tintColor="#007AFF"
             colors={["#007AFF"]}

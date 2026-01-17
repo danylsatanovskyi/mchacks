@@ -26,7 +26,7 @@ export const LoginScreen: React.FC = () => {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Welcome to mchacks</Text>
+      <Text style={styles.title}>Welcome to Wagr</Text>
       <Text style={styles.subtitle}>Friends-only betting with personality</Text>
 
       <TouchableOpacity
