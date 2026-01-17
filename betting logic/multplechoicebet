@@ -1,33 +1,37 @@
 import pandas as pd
 
 
-class BinaryBettingSystem:
+class MultipleChoiceBetting:
     """
-    Binary event betting (Yes/No) with host cut.
+    Multiple-choice event betting with the SAME payout form as the binary system,
+    treating "correct choice" as the winning pool and "all other choices" as the losing pool.
 
     Input df requirements:
       - index: player_id
       - columns:
-          * "choice"  : "yes" or "no" (case-insensitive)
-          * "amount"  : numeric >= 0
-          * "cut"     : per-player cut p in [0, 1] (optional if default_cut is provided)
+          * "choice" : any hashable label (str/int/etc). Stored as string by default for consistency.
+          * "amount" : numeric >= 0
+          * "cut"    : per-player cut p in [0,1] (optional if default_cut is provided)
 
     Settlement:
-      - outcome: "yes" or "no"
+      - outcome: the correct choice label
+      - Let:
+          M    = sum(amount) over ALL players (total pool)
+          Mwin = sum(amount) over players with choice == outcome (winning pool)
       - For winners i:
             payoff_i = x_i * (1 - p_i) * M / Mwin
-        where:
-            x_i   = amount bet by player i
-            p_i   = cut for player i (or default_cut)
-            M     = total pool sum(amount)
-            Mwin  = total pool of winning side sum(amount of winners)
       - For losers: payoff_i = 0
       - pnl_i = payoff_i - amount_i
+
+    Notes:
+      - If Mwin == 0 (nobody picked the correct outcome), payoffs are 0 by default.
+        You can change this policy if desired (e.g., refund everyone, or roll over).
     """
 
-    def __init__(self, bets: pd.DataFrame, default_cut: float | None = None):
+    def __init__(self, bets: pd.DataFrame, default_cut: float | None = None, coerce_choice_to_str: bool = True):
         self.bets = bets.copy()
         self.default_cut = default_cut
+        self.coerce_choice_to_str = coerce_choice_to_str
         self._validate_and_normalize()
 
     def _validate_and_normalize(self) -> None:
@@ -36,26 +40,17 @@ class BinaryBettingSystem:
         if missing:
             raise ValueError(f"Missing required columns: {sorted(missing)}")
 
-        # Normalize choice
-        self.bets["choice"] = (
-            self.bets["choice"]
-            .astype(str)
-            .str.strip()
-            .str.lower()
-        )
-        valid_choices = {"yes", "no"}
-        bad = ~self.bets["choice"].isin(valid_choices)
-        if bad.any():
-            bad_ids = self.bets.index[bad].tolist()
-            raise ValueError(f"Invalid choice for player(s): {bad_ids}. Use 'yes' or 'no'.")
+        # Choice normalization (optional)
+        if self.coerce_choice_to_str:
+            self.bets["choice"] = self.bets["choice"].astype(str).str.strip()
 
-        # Amount
+        # Amount normalization
         self.bets["amount"] = pd.to_numeric(self.bets["amount"], errors="raise")
         if (self.bets["amount"] < 0).any():
             bad_ids = self.bets.index[self.bets["amount"] < 0].tolist()
             raise ValueError(f"Negative bet amount for player(s): {bad_ids}")
 
-        # Cut (per-player or default)
+        # Cut handling
         if "cut" not in self.bets.columns:
             if self.default_cut is None:
                 raise ValueError("No 'cut' column provided and default_cut is None.")
@@ -63,7 +58,6 @@ class BinaryBettingSystem:
         else:
             self.bets["cut"] = pd.to_numeric(self.bets["cut"], errors="raise")
             if self.default_cut is not None:
-                # Fill missing cuts with default_cut
                 self.bets["cut"] = self.bets["cut"].fillna(float(self.default_cut))
 
         if self.bets["cut"].isna().any():
@@ -74,22 +68,22 @@ class BinaryBettingSystem:
             bad_ids = self.bets.index[((self.bets["cut"] < 0) | (self.bets["cut"] > 1))].tolist()
             raise ValueError(f"Cut out of [0,1] for player(s): {bad_ids}")
 
-    def settle(self, outcome: str) -> pd.DataFrame:
-        outcome = str(outcome).strip().lower()
-        if outcome not in {"yes", "no"}:
-            raise ValueError("Outcome must be 'yes' or 'no'.")
+    def settle(self, outcome) -> pd.DataFrame:
+        # Normalize outcome to match df choice normalization
+        if self.coerce_choice_to_str:
+            outcome_key = str(outcome).strip()
+        else:
+            outcome_key = outcome
 
         df = self.bets.copy()
 
         M = float(df["amount"].sum())
-        winners_mask = df["choice"].eq(outcome)
+        winners_mask = df["choice"].eq(outcome_key)
         Mwin = float(df.loc[winners_mask, "amount"].sum())
 
-        # Default: payoff 0
         payoff = pd.Series(0.0, index=df.index, name="payoff")
 
         if M > 0 and Mwin > 0:
-            # payoff_i = x_i*(1-p_i)*M/Mwin for winners
             payoff.loc[winners_mask] = (
                 df.loc[winners_mask, "amount"]
                 * (1.0 - df.loc[winners_mask, "cut"])
@@ -98,23 +92,22 @@ class BinaryBettingSystem:
 
         pnl = (payoff - df["amount"]).rename("pnl")
 
-        out = pd.DataFrame({"payoff": payoff, "pnl": pnl}, index=df.index)
-        return out
+        return pd.DataFrame({"payoff": payoff, "pnl": pnl}, index=df.index)
 
 
-p = 0.02
 # ---- Example usage ----
 if __name__ == "__main__":
     bets = pd.DataFrame(
         {
-            "choice": ["yes", "no", "yes", "no"],
-            "amount": [25, 25, 25, 25],
-            "cut": [p, p, p, p],  # per-player p
+            "choice": ["A", "B", "C", "B", "A"],
+            "amount": [10, 5, 20, 10, 15],
+            "cut": [0.10, 0.10, 0.10, 0.10, 0.10],
         },
-        index=["p1", "p2", "p3", "p4"],
+        index=["p1", "p2", "p3", "p4", "p5"],
     )
-    
+
     print(bets, '\n')
-    system = BinaryBettingSystem(bets)
-    result = system.settle("yes")
+    system = MultipleChoiceBetting(bets)
+    # Suppose the correct outcome is "B"
+    result = system.settle("B")
     print(result)

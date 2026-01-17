@@ -1,0 +1,159 @@
+import pandas as pd
+import numpy as np
+
+
+class TargetProximityBet:
+    """
+    Proximity-based betting using the same normalization idea as earlier, but with
+    "amount-adjusted by proximity" determining each player's effective share of the pool.
+
+    Inputs (DataFrame):
+      - index: player_id
+      - columns:
+          * "guess"  : numeric guess g_i
+          * "amount" : numeric >= 0 (buy-in / stake x_i)
+          * "cut"    : per-player cut p_i in [0,1] (optional if default_cut is provided)
+
+    Parameters:
+      - s (float): proximity decay scale (default 3.0). Larger s => flatter payouts.
+      - default_buy_in (float|None): if provided, fills missing "amount" values.
+      - default_cut (float|None): if provided, fills missing "cut" values.
+
+    Proximity weighting (Model A):
+      - target (true value) T
+      - error e_i = |g_i - T|
+      - proximity factor q_i = exp(-e_i / s)
+
+    Effective winning "pool" for normalization:
+      - For each player: effective_weight_i = amount_i * q_i
+      - Let:
+          M    = sum(amount_i) over all players (total pool)
+          W    = sum(effective_weight_i) over all players
+
+    Payoff:
+      - If W == 0 or M == 0: payoff_i = 0
+      - Otherwise:
+          payoff_i = (1 - cut_i) * amount_i * q_i * (M / W)
+
+    Output (DataFrame, same index):
+      - "payoff": total payout received from the pool
+      - "pnl"   : payoff - amount
+      - (extras included for debugging/UX): "error", "proximity", "effective_weight"
+
+    Note:
+      - This is NOT exactly the same as the binary formula with Mwin, because there is
+        no single "winning choice" pool. Here, proximity creates a continuous winning weight,
+        and W plays the role of the "winning pool" in the same normalization structure.
+    """
+
+    def __init__(
+        self,
+        bets: pd.DataFrame,
+        s: float = 3.0,
+        default_buy_in: float | None = None,
+        default_cut: float | None = None,
+    ):
+        self.bets = bets.copy()
+        self.s = float(s)
+        self.default_buy_in = default_buy_in
+        self.default_cut = default_cut
+        self._validate_and_normalize()
+
+    def _validate_and_normalize(self) -> None:
+        if self.s <= 0:
+            raise ValueError("s must be > 0.")
+
+        required = {"guess"}
+        missing = required - set(self.bets.columns)
+        if missing:
+            raise ValueError(f"Missing required columns: {sorted(missing)}")
+
+        # Guess
+        self.bets["guess"] = pd.to_numeric(self.bets["guess"], errors="raise")
+
+        # Amount (buy-in)
+        if "amount" not in self.bets.columns:
+            if self.default_buy_in is None:
+                raise ValueError("No 'amount' column provided and default_buy_in is None.")
+            self.bets["amount"] = float(self.default_buy_in)
+        else:
+            self.bets["amount"] = pd.to_numeric(self.bets["amount"], errors="raise")
+            if self.default_buy_in is not None:
+                self.bets["amount"] = self.bets["amount"].fillna(float(self.default_buy_in))
+
+        if (self.bets["amount"] < 0).any():
+            bad_ids = self.bets.index[self.bets["amount"] < 0].tolist()
+            raise ValueError(f"Negative amount for player(s): {bad_ids}")
+
+        # Cut
+        if "cut" not in self.bets.columns:
+            if self.default_cut is None:
+                raise ValueError("No 'cut' column provided and default_cut is None.")
+            self.bets["cut"] = float(self.default_cut)
+        else:
+            self.bets["cut"] = pd.to_numeric(self.bets["cut"], errors="raise")
+            if self.default_cut is not None:
+                self.bets["cut"] = self.bets["cut"].fillna(float(self.default_cut))
+
+        if self.bets["cut"].isna().any():
+            bad_ids = self.bets.index[self.bets["cut"].isna()].tolist()
+            raise ValueError(f"Missing cut for player(s): {bad_ids} (provide 'cut' or default_cut).")
+
+        if ((self.bets["cut"] < 0) | (self.bets["cut"] > 1)).any():
+            bad_ids = self.bets.index[((self.bets["cut"] < 0) | (self.bets["cut"] > 1))].tolist()
+            raise ValueError(f"Cut out of [0,1] for player(s): {bad_ids}")
+
+    def settle(self, target: float) -> pd.DataFrame:
+        T = float(target)
+        df = self.bets.copy()
+
+        # Compute proximity terms
+        error = (df["guess"] - T).abs()
+        proximity = np.exp(-error / self.s)  # exp(y) = e^y
+
+        amount = df["amount"].astype(float)
+        cut = df["cut"].astype(float)
+
+        M = float(amount.sum())
+        effective_weight = amount * proximity
+        W = float(effective_weight.sum())
+
+        payoff = pd.Series(0.0, index=df.index, name="payoff")
+
+        if M > 0 and W > 0:
+            payoff = (1.0 - cut) * effective_weight * (M / W)
+            payoff = payoff.rename("payoff")
+
+        pnl = (payoff - amount).rename("pnl")
+
+        out = pd.DataFrame(
+            {
+                "payoff": payoff,
+                "pnl": pnl,
+                "error": error,
+                "proximity": proximity,
+                "effective_weight": effective_weight,
+            },
+            index=df.index,
+        )
+        return out
+
+
+p = 0.02
+buyin = 20
+
+# ---- Example usage ----
+if __name__ == "__main__":
+    bets = pd.DataFrame(
+        {
+            "guess": [11, 14, 20, 7],
+            "amount": [buyin, buyin, buyin, buyin],  # buy-in
+            "cut": [p, p, p, p],
+        },
+        index=["p1", "p2", "p3", "p4"],
+    )
+
+    print(bets, '\n')
+    system = TargetProximityBet(bets, s=3.0)
+    result = system.settle(target=12)
+    print(result[["payoff", "pnl"]])
