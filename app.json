@@ -11,22 +11,28 @@
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
-    "assetBundlePatterns": [
-      "**/*"
-    ],
+    "assetBundlePatterns": ["**/*"],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.mchacks.app"
+      "bundleIdentifier": "com.wagr.app"
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "package": "com.mchacks.app"
+      "package": "com.wagr.app"
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "plugins": [
+      [
+        "react-native-auth0",
+        {
+          "domain": "dev-lu81582mpu422b36.us.auth0.com"
+        }
+      ]
+    ]
   }
 }
