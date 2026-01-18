@@ -8,6 +8,7 @@ import { LoginScreen } from "./screens/LoginScreen";
 import { FeedScreen } from "./screens/FeedScreen";
 import { CreateBetScreen } from "./screens/CreateBetScreen";
 import { LeagueScreen } from "./screens/LeagueScreen";
+import { LeagueChatScreen } from "./screens/LeagueChatScreen";
 import { ProfileScreen } from "./screens/ProfileScreen";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 
@@ -62,6 +63,16 @@ const MainTabs = () => {
           title: "League",
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="trophy-outline" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tab.Screen
+        name="Chat"
+        component={LeagueChatScreen}
+        options={{
+          title: "Chat",
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="chatbubbles-outline" size={size} color={color} />
           ),
         }}
       />

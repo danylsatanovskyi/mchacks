@@ -89,21 +89,21 @@ class BetMonitor:
             time.sleep(check_interval)
 
 
-# ========== USAGE ==========
+if __name__ == "__main__":
+    # ========== USAGE ==========
+    API_KEY = "011931333843413982a3fe500c4c1b84"
+    USER_ID = "KmBUUScbzvdPDMRsWAfOuaxnkzF3"
+    SAVED_ITEM_ID = "fGasRrQ3voLDvzXUfRVkXw"
 
-API_KEY = "011931333843413982a3fe500c4c1b84"
-USER_ID = "KmBUUScbzvdPDMRsWAfOuaxnkzF3"
-SAVED_ITEM_ID = "fGasRrQ3voLDvzXUfRVkXw"
+    # Create monitor
+    monitor = BetMonitor(API_KEY, USER_ID, SAVED_ITEM_ID)
 
-# Create monitor
-monitor = BetMonitor(API_KEY, USER_ID, SAVED_ITEM_ID)
+    # Monitor a bet continuously
+    bet = "barca madrid jan 12 2026"
+    winner = monitor.monitor_bet_continuously(
+        bet_description=bet,
+        check_interval=3,
+        max_checks=100
+    )
 
-# Monitor a bet continuously
-bet = "barca madrid jan 12 2026"
-winner = monitor.monitor_bet_continuously(
-    bet_description=bet,
-    check_interval=3,
-    max_checks=100
-)
-
-print(f"\nFinal result: {winner}")
+    print(f"\nFinal result: {winner}")

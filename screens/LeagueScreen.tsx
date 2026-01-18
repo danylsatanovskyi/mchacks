@@ -53,57 +53,6 @@ const dummyMembers: LeagueMember[] = [
   },
 ];
 
-const dummyLeaderboard: LeaderboardEntry[] = [
-  {
-    user_id: "fake-user-id-123",
-    username: "Dev User",
-    profile_pic: "https://i.pravatar.cc/150?img=12",
-    total_winnings: 150,
-    total_wagered: 100,
-    rank: 1,
-    delta: 1,
-    current_pnl: 145,
-    win_streak: 5,
-    total_bets: 47,
-    total_wins: 28,
-    total_losses: 19,
-    greatest_loss: -50,
-    greatest_win: 250,
-  },
-  {
-    user_id: "user2",
-    username: "Player2",
-    profile_pic: "https://i.pravatar.cc/150?img=1",
-    total_winnings: 80,
-    total_wagered: 120,
-    rank: 2,
-    delta: -1,
-    current_pnl: 50,
-    win_streak: 2,
-    total_bets: 33,
-    total_wins: 18,
-    total_losses: 15,
-    greatest_loss: -40,
-    greatest_win: 120,
-  },
-  {
-    user_id: "user3",
-    username: "Player3",
-    profile_pic: "https://i.pravatar.cc/150?img=2",
-    total_winnings: 50,
-    total_wagered: 90,
-    rank: 3,
-    delta: 0,
-    current_pnl: -40,
-    win_streak: 0,
-    total_bets: 22,
-    total_wins: 9,
-    total_losses: 13,
-    greatest_loss: -80,
-    greatest_win: 80,
-  },
-];
-
 const dummyAgentMessages: AgentMessage[] = [
   {
     type: "roast_top",
@@ -141,8 +90,7 @@ export const LeagueScreen: React.FC = () => {
   const [leagueName, setLeagueName] = useState(dummyLeague.name);
   const [isEditingName, setIsEditingName] = useState(false);
   const [members, setMembers] = useState<LeagueMember[]>(dummyMembers);
-  const [leaderboard, setLeaderboard] =
-    useState<LeaderboardEntry[]>(dummyLeaderboard);
+  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [agentMessages, setAgentMessages] = useState<AgentMessage[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [showInviteModal, setShowInviteModal] = useState(false);
@@ -161,10 +109,8 @@ export const LeagueScreen: React.FC = () => {
 
   const loadLeaderboard = async () => {
     try {
-      // TODO: Replace with actual API call
-      // const data = await getLeaderboard({ group_id: league.id });
-      // setLeaderboard(data);
-      console.log("Loading leaderboard...");
+      const data = await getLeaderboard({ group_id: league.id });
+      setLeaderboard(data);
     } catch (error) {
       console.error("Error loading leaderboard:", error);
     }
@@ -219,10 +165,15 @@ export const LeagueScreen: React.FC = () => {
       Alert.alert("Error", "League name cannot be empty");
       return;
     }
-    setLeague({ ...league, name: leagueName.trim() });
-    // TODO: Replace with API call
-    // await updateLeagueName(league.id, leagueName.trim());
-    setIsEditingName(false);
+    updateLeagueName(league.id, leagueName.trim())
+      .then((updatedLeague) => {
+        setLeague(updatedLeague);
+        setIsEditingName(false);
+      })
+      .catch((error) => {
+        console.error("Error updating league name:", error);
+        Alert.alert("Error", "Failed to update league name");
+      });
   };
 
   const handleKickUser = (userId: string, username: string) => {
@@ -260,15 +211,20 @@ export const LeagueScreen: React.FC = () => {
           text: "Transfer",
           style: "destructive",
           onPress: () => {
-            setLeague({ ...league, commissioner_id: userId });
-            setMembers((prev) =>
-              prev.map((member) => ({
-                ...member,
-                is_commissioner: member.user_id === userId,
-              })),
-            );
-            // TODO: Replace with API call
-            // await transferCommissioner(league.id, userId);
+            transferCommissioner(league.id, userId)
+              .then((updatedLeague) => {
+                setLeague(updatedLeague);
+                setMembers((prev) =>
+                  prev.map((member) => ({
+                    ...member,
+                    is_commissioner: member.user_id === userId,
+                  })),
+                );
+              })
+              .catch((error) => {
+                console.error("Error transferring commissioner:", error);
+                Alert.alert("Error", "Failed to transfer commissioner");
+              });
           },
         },
       ],

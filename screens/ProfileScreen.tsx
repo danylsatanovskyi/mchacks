@@ -12,20 +12,21 @@ import {
 } from "react-native";
 import { UserProfile } from "../types";
 import { useAuth } from "../contexts/AuthContext";
+import { getCurrentUser, updateUserProfile } from "../services/api";
 
 // Dummy profile data
 const dummyProfile: UserProfile = {
   user_id: "fake-user-id-123",
   username: "Dev User",
   profile_pic: "https://i.pravatar.cc/150?img=12",
-  total_bets: 47,
-  total_wins: 28,
-  total_losses: 19,
-  current_pnl: 145,
-  greatest_win: 250,
-  greatest_loss: -50,
-  win_streak: 5,
-  current_balance: 345,
+  total_bets: 0,
+  total_wins: 0,
+  total_losses: 0,
+  current_pnl: 0,
+  greatest_win: 0,
+  greatest_loss: 0,
+  win_streak: 0,
+  current_balance: 0,
 };
 
 const StatCard: React.FC<{
@@ -50,16 +51,45 @@ export const ProfileScreen: React.FC = () => {
     useState(profileState.profile_pic || "");
 
   useEffect(() => {
-    // TODO: Load profile from API
-    // const loadProfile = async () => {
-    //   const data = await getUserProfile(user?.sub);
-    //   setProfile(data);
-    // };
-    // loadProfile();
-    if (authProfile) {
-      setProfileState(authProfile);
+    const loadProfile = async () => {
+      try {
+        const data = await getCurrentUser();
+        setProfileState({
+          user_id: data.id || data.user_id,
+          username: data.username,
+          profile_pic: data.profile_pic,
+          total_bets: data.total_bets || 0,
+          total_wins: data.total_wins || 0,
+          total_losses: data.total_losses || 0,
+          current_pnl: data.current_pnl || 0,
+          greatest_win: data.greatest_win || 0,
+          greatest_loss: data.greatest_loss || 0,
+          win_streak: data.win_streak || 0,
+          current_balance: data.balance || 0,
+        });
+        updateProfile({
+          user_id: data.id || data.user_id,
+          username: data.username,
+          profile_pic: data.profile_pic,
+          total_bets: data.total_bets || 0,
+          total_wins: data.total_wins || 0,
+          total_losses: data.total_losses || 0,
+          current_pnl: data.current_pnl || 0,
+          greatest_win: data.greatest_win || 0,
+          greatest_loss: data.greatest_loss || 0,
+          win_streak: data.win_streak || 0,
+          current_balance: data.balance || 0,
+        });
+      } catch (error) {
+        console.error("Error loading profile:", error);
+      }
+    };
+
+    if (user) {
+      loadProfile();
     }
-  }, [user, authProfile]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
 
   const handleLogout = async () => {
     await logout();
@@ -80,12 +110,19 @@ export const ProfileScreen: React.FC = () => {
       username: editUsername.trim(),
       profile_pic: editProfilePic.trim() || profileState.profile_pic,
     };
-    setProfileState((prev) => ({
-      ...prev,
-      ...updates,
-    }));
-    updateProfile(updates);
-    setShowEditModal(false);
+    updateUserProfile(updates)
+      .then(() => {
+        setProfileState((prev) => ({
+          ...prev,
+          ...updates,
+        }));
+        updateProfile(updates);
+        setShowEditModal(false);
+      })
+      .catch((error) => {
+        console.error("Error updating profile:", error);
+        Alert.alert("Error", "Failed to update profile");
+      });
   };
 
   const winRate =

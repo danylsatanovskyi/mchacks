@@ -1,0 +1,10 @@
+fastapi
+uvicorn[standard]
+pymongo
+pandas
+numpy
+requests
+apscheduler
+pydantic
+python-multipart
+python-dotenv

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from "react";
+import React, { createContext, useContext, useEffect, useState, useCallback } from "react";
 import {
   Auth0User,
   // login as auth0Login,
@@ -30,14 +30,14 @@ const FAKE_PROFILE: UserProfile = {
   user_id: "fake-user-id-123",
   username: "Dev User",
   profile_pic: "https://i.pravatar.cc/150?img=12",
-  total_bets: 47,
-  total_wins: 28,
-  total_losses: 19,
-  current_pnl: 145,
-  greatest_win: 250,
-  greatest_loss: -50,
-  win_streak: 5,
-  current_balance: 345,
+  total_bets: 0,
+  total_wins: 0,
+  total_losses: 0,
+  current_pnl: 0,
+  greatest_win: 0,
+  greatest_loss: 0,
+  win_streak: 0,
+  current_balance: 0,
 };
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
@@ -95,9 +95,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     setProfile(null);
   };
 
-  const updateProfile = (updates: Partial<UserProfile>) => {
+  const updateProfile = useCallback((updates: Partial<UserProfile>) => {
     setProfile((prev) => (prev ? { ...prev, ...updates } : prev));
-  };
+  }, []);
 
   return (
     <AuthContext.Provider

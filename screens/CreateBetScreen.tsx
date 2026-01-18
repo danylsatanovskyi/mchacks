@@ -12,41 +12,13 @@ import { BetType, Event } from "../types";
 import { getEvents, createBet } from "../services/api";
 import { useAuth } from "../contexts/AuthContext";
 
-// Dummy events for development
-const dummyEvents: Event[] = [
-  {
-    id: "eventcustom",
-    category: "custom",
-    title: "Custom Event",
-    status: "upcoming",
-  },
-  {
-    id: "event1",
-    category: "sports",
-    league: "NBA",
-    teams: ["Lakers", "Warriors"],
-    title: "Lakers vs Warriors",
-    start_time: new Date().toISOString(),
-    status: "upcoming",
-  },
-  {
-    id: "event2",
-    category: "sports",
-    league: "Formula 1",
-    teams: ["Hamilton", "Verstappen", "Leclerc"],
-    title: "Formula 1 - Top 3",
-    start_time: new Date().toISOString(),
-    status: "upcoming",
-  },
-];
-
 export const CreateBetScreen: React.FC = () => {
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
   const [betType, setBetType] = useState<BetType>("moneyline");
   const [title, setTitle] = useState("");
   const [options, setOptions] = useState<string[]>(["", ""]);
   const [stake, setStake] = useState("10");
-  const [events, setEvents] = useState<Event[]>(dummyEvents);
+  const [events, setEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(false);
   const { user } = useAuth();
 
@@ -56,10 +28,14 @@ export const CreateBetScreen: React.FC = () => {
 
   const loadEvents = async () => {
     try {
-      // TODO: Replace with actual API call when backend is ready
-      // const data = await getEvents({ status: "upcoming" });
-      // setEvents(data);
-      console.log("Loading events...");
+      const data = await getEvents({ status: "upcoming" });
+      const customEvent: Event = {
+        id: "eventcustom",
+        category: "custom",
+        title: "Custom Event",
+        status: "upcoming",
+      };
+      setEvents([customEvent, ...data]);
     } catch (error) {
       console.error("Error loading events:", error);
     }
@@ -141,14 +117,14 @@ export const CreateBetScreen: React.FC = () => {
 
     setLoading(true);
     try {
-      // TODO: Replace with actual API call when backend is ready
-      // await createBet({
-      //   event_id: selectedEvent.id,
-      //   type: betType,
-      //   title: title.trim(),
-      //   options: validOptions,
-      //   stake: stakeAmount,
-      // });
+      await createBet({
+        event_id: selectedEvent.id,
+        group_id: "league1", // TODO: Get from user's current league
+        type: betType,
+        title: title.trim(),
+        options: validOptions,
+        stake: stakeAmount,
+      });
 
       Alert.alert("Success", "Bet created successfully!");
       // Reset form

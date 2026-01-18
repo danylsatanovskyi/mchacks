@@ -33,6 +33,7 @@ export const BetResolutionModal: React.FC<BetResolutionModalProps> = ({
   const [didHit, setDidHit] = useState<boolean | undefined>(undefined);
   const [isFinished, setIsFinished] = useState(false);
   const [useCommissionerOverride, setUseCommissionerOverride] = useState(false);
+  const [targetResult, setTargetResult] = useState("");
   const [note, setNote] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -47,12 +48,12 @@ export const BetResolutionModal: React.FC<BetResolutionModalProps> = ({
       return;
     }
 
-    if (
-      isFinished &&
-      bet.type !== "target-proximity" &&
-      !selectedWinner
-    ) {
+    if (isFinished && bet.type !== "target-proximity" && !selectedWinner) {
       Alert.alert("Error", "Please select a winner");
+      return;
+    }
+    if (isFinished && bet.type === "target-proximity" && !targetResult.trim()) {
+      Alert.alert("Error", "Please enter the final target value");
       return;
     }
 
@@ -62,14 +63,16 @@ export const BetResolutionModal: React.FC<BetResolutionModalProps> = ({
         ? "commissioner_override"
         : "manual";
 
-      // TODO: Replace with actual API call when backend is ready
-      // await resolveBet(bet.id, {
-      //   winner: bet.type !== "target-proximity" ? selectedWinner : undefined,
-      //   mode: resolutionMode,
-      //   did_hit: didHit,
-      //   is_finished: isFinished,
-      //   note: note.trim() || undefined,
-      // });
+      await resolveBet(bet.id, {
+        winner:
+          bet.type === "target-proximity"
+            ? targetResult.trim()
+            : selectedWinner,
+        mode: resolutionMode,
+        did_hit: didHit,
+        is_finished: isFinished,
+        note: note.trim() || undefined,
+      });
 
       Alert.alert("Success", "Bet resolved successfully!");
       onResolved();
@@ -156,6 +159,20 @@ export const BetResolutionModal: React.FC<BetResolutionModalProps> = ({
                 onValueChange={setUseCommissionerOverride}
                 trackColor={{ false: "#333", true: "#FFD700" }}
                 thumbColor="#fff"
+              />
+            </View>
+          )}
+
+          {isFinished && bet.type === "target-proximity" && (
+            <View>
+              <Text style={styles.label}>Final Target Value:</Text>
+              <TextInput
+                style={styles.noteInput}
+                value={targetResult}
+                onChangeText={setTargetResult}
+                placeholder="e.g., 120"
+                keyboardType="numeric"
+                placeholderTextColor="#666"
               />
             </View>
           )}
