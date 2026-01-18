@@ -7,15 +7,18 @@ import {
   TouchableOpacity,
   TextInput,
   Alert,
+  Switch,
 } from "react-native";
 import { Bet } from "../types";
 import { resolveBet } from "../services/api";
+import { useAuth } from "../contexts/AuthContext";
 
 interface BetResolutionModalProps {
   visible: boolean;
   bet: Bet | null;
   onClose: () => void;
   onResolved: () => void;
+  isCommissioner?: boolean;
 }
 
 export const BetResolutionModal: React.FC<BetResolutionModalProps> = ({
@@ -23,41 +26,48 @@ export const BetResolutionModal: React.FC<BetResolutionModalProps> = ({
   bet,
   onClose,
   onResolved,
+  isCommissioner = false,
 }) => {
+  const { user } = useAuth();
   const [selectedWinner, setSelectedWinner] = useState<string>("");
-  const [selectedRankings, setSelectedRankings] = useState<string[]>([]);
+  const [didHit, setDidHit] = useState<boolean | undefined>(undefined);
+  const [isFinished, setIsFinished] = useState(false);
+  const [useCommissionerOverride, setUseCommissionerOverride] = useState(false);
   const [note, setNote] = useState("");
   const [loading, setLoading] = useState(false);
 
   if (!bet) return null;
 
-  const handleRankingSelect = (option: string, position: number) => {
-    const newRankings = [...selectedRankings];
-    newRankings[position] = option;
-    setSelectedRankings(newRankings);
-  };
+  const isBetCreator = user?.sub === bet.creator_id;
+  const canResolve = isBetCreator || isCommissioner;
 
   const handleSubmit = async () => {
-    if (bet.type === "binary" && !selectedWinner) {
+    if (!isFinished && didHit === undefined) {
+      Alert.alert("Error", "Please mark if the bet finished and whether it hit");
+      return;
+    }
+
+    if (
+      isFinished &&
+      bet.type !== "target-proximity" &&
+      !selectedWinner
+    ) {
       Alert.alert("Error", "Please select a winner");
       return;
     }
 
-    if (bet.type === "ranked") {
-      const uniqueRankings = [...new Set(selectedRankings.filter((r) => r))];
-      if (uniqueRankings.length !== 3) {
-        Alert.alert("Error", "Please select exactly 3 different rankings");
-        return;
-      }
-    }
-
     setLoading(true);
     try {
+      const resolutionMode = useCommissionerOverride && isCommissioner
+        ? "commissioner_override"
+        : "manual";
+
       // TODO: Replace with actual API call when backend is ready
       // await resolveBet(bet.id, {
-      //   winner: bet.type === "binary" ? selectedWinner : undefined,
-      //   rankings: bet.type === "ranked" ? selectedRankings : undefined,
-      //   mode: "manual",
+      //   winner: bet.type !== "target-proximity" ? selectedWinner : undefined,
+      //   mode: resolutionMode,
+      //   did_hit: didHit,
+      //   is_finished: isFinished,
       //   note: note.trim() || undefined,
       // });
 
@@ -79,7 +89,78 @@ export const BetResolutionModal: React.FC<BetResolutionModalProps> = ({
           <Text style={styles.title}>Resolve Bet</Text>
           <Text style={styles.betTitle}>{bet.title}</Text>
 
-          {bet.type === "binary" ? (
+          {!canResolve && (
+            <View style={styles.permissionNotice}>
+              <Text style={styles.permissionNoticeText}>
+                Only the bet creator or commissioner can resolve this bet.
+              </Text>
+            </View>
+          )}
+
+          {/* Bet Status Toggles */}
+          <View style={styles.toggleRow}>
+            <Text style={styles.toggleLabel}>Bet Finished:</Text>
+            <Switch
+              value={isFinished}
+              onValueChange={setIsFinished}
+              trackColor={{ false: "#333", true: "#007AFF" }}
+              thumbColor="#fff"
+            />
+          </View>
+
+          {isFinished && (
+            <View style={styles.toggleRow}>
+              <Text style={styles.toggleLabel}>Did it Hit:</Text>
+              <View style={styles.hitToggleContainer}>
+                <TouchableOpacity
+                  style={[
+                    styles.hitToggleButton,
+                    didHit === true && styles.hitToggleButtonActive,
+                  ]}
+                  onPress={() => setDidHit(true)}
+                >
+                  <Text
+                    style={[
+                      styles.hitToggleText,
+                      didHit === true && styles.hitToggleTextActive,
+                    ]}
+                  >
+                    ✅ Hit
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.hitToggleButton,
+                    didHit === false && styles.hitToggleButtonActiveMiss,
+                  ]}
+                  onPress={() => setDidHit(false)}
+                >
+                  <Text
+                    style={[
+                      styles.hitToggleText,
+                      didHit === false && styles.hitToggleTextActiveMiss,
+                    ]}
+                  >
+                    ❌ Miss
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+
+          {isCommissioner && (
+            <View style={styles.toggleRow}>
+              <Text style={styles.toggleLabel}>Commissioner Override:</Text>
+              <Switch
+                value={useCommissionerOverride}
+                onValueChange={setUseCommissionerOverride}
+                trackColor={{ false: "#333", true: "#FFD700" }}
+                thumbColor="#fff"
+              />
+            </View>
+          )}
+
+          {isFinished && bet.type !== "target-proximity" && (
             <View>
               <Text style={styles.label}>Select Winner:</Text>
               {bet.options.map((option) => (
@@ -102,36 +183,6 @@ export const BetResolutionModal: React.FC<BetResolutionModalProps> = ({
                 </TouchableOpacity>
               ))}
             </View>
-          ) : (
-            <View>
-              <Text style={styles.label}>Select Rankings:</Text>
-              {["1st", "2nd", "3rd"].map((position, index) => (
-                <View key={position} style={styles.rankingRow}>
-                  <Text style={styles.positionLabel}>{position}:</Text>
-                  {bet.options.map((option) => (
-                    <TouchableOpacity
-                      key={option}
-                      style={[
-                        styles.optionButtonSmall,
-                        selectedRankings[index] === option &&
-                          styles.optionButtonSelected,
-                      ]}
-                      onPress={() => handleRankingSelect(option, index)}
-                    >
-                      <Text
-                        style={[
-                          styles.optionTextSmall,
-                          selectedRankings[index] === option &&
-                            styles.optionTextSelected,
-                        ]}
-                      >
-                        {option}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              ))}
-            </View>
           )}
 
           <Text style={styles.label}>Note (optional):</Text>
@@ -150,9 +201,12 @@ export const BetResolutionModal: React.FC<BetResolutionModalProps> = ({
               <Text style={styles.cancelButtonText}>Cancel</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.submitButton, loading && styles.submitButtonDisabled]}
+              style={[
+                styles.submitButton,
+                (loading || !canResolve) && styles.submitButtonDisabled,
+              ]}
               onPress={handleSubmit}
-              disabled={loading}
+              disabled={loading || !canResolve}
             >
               <Text style={styles.submitButtonText}>
                 {loading ? "Resolving..." : "Resolve"}
@@ -219,32 +273,6 @@ const styles = StyleSheet.create({
   optionTextSelected: {
     color: "#007AFF",
   },
-  optionButtonSmall: {
-    backgroundColor: "#2a2a2a",
-    padding: 8,
-    borderRadius: 8,
-    marginRight: 8,
-    borderWidth: 2,
-    borderColor: "#333",
-  },
-  optionTextSmall: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#fff",
-  },
-  rankingRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 12,
-    flexWrap: "wrap",
-  },
-  positionLabel: {
-    fontSize: 16,
-    fontWeight: "600",
-    width: 40,
-    marginRight: 8,
-    color: "#fff",
-  },
   noteInput: {
     backgroundColor: "#2a2a2a",
     borderRadius: 8,
@@ -288,5 +316,62 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
     color: "#fff",
+  },
+  toggleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 16,
+    paddingVertical: 8,
+  },
+  permissionNotice: {
+    backgroundColor: "#2a1f1f",
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: "#FF3B30",
+  },
+  permissionNoticeText: {
+    color: "#FF3B30",
+    fontSize: 12,
+    fontWeight: "600",
+    textAlign: "center",
+  },
+  toggleLabel: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#fff",
+  },
+  hitToggleContainer: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  hitToggleButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
+    backgroundColor: "#2a2a2a",
+    borderWidth: 2,
+    borderColor: "#333",
+  },
+  hitToggleButtonActive: {
+    borderColor: "#34C759",
+    backgroundColor: "#1a3a1a",
+  },
+  hitToggleButtonActiveMiss: {
+    borderColor: "#FF3B30",
+    backgroundColor: "#3a1a1a",
+  },
+  hitToggleText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#aaa",
+  },
+  hitToggleTextActive: {
+    color: "#34C759",
+  },
+  hitToggleTextActiveMiss: {
+    color: "#FF3B30",
   },
 });

@@ -3,10 +3,12 @@ import { NavigationContainer } from "@react-navigation/native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { StatusBar } from "expo-status-bar";
 import { StyleSheet, View, ActivityIndicator } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { LoginScreen } from "./screens/LoginScreen";
 import { FeedScreen } from "./screens/FeedScreen";
 import { CreateBetScreen } from "./screens/CreateBetScreen";
-import { LeaderboardScreen } from "./screens/LeaderboardScreen";
+import { LeagueScreen } from "./screens/LeagueScreen";
+import { ProfileScreen } from "./screens/ProfileScreen";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 
 const Tab = createBottomTabNavigator();
@@ -39,12 +41,7 @@ const MainTabs = () => {
         options={{
           title: "Feed",
           tabBarIcon: ({ color, size }) => (
-            <View
-              style={[
-                styles.tabIcon,
-                { borderColor: color, width: size, height: size },
-              ]}
-            />
+            <Ionicons name="home-outline" size={size} color={color} />
           ),
         }}
       />
@@ -54,27 +51,27 @@ const MainTabs = () => {
         options={{
           title: "Create Bet",
           tabBarIcon: ({ color, size }) => (
-            <View
-              style={[
-                styles.tabIcon,
-                { borderColor: color, width: size, height: size },
-              ]}
-            />
+            <Ionicons name="add-circle-outline" size={size} color={color} />
           ),
         }}
       />
       <Tab.Screen
-        name="Leaderboard"
-        component={LeaderboardScreen}
+        name="League"
+        component={LeagueScreen}
         options={{
-          title: "Leaderboard",
+          title: "League",
           tabBarIcon: ({ color, size }) => (
-            <View
-              style={[
-                styles.tabIcon,
-                { borderColor: color, width: size, height: size },
-              ]}
-            />
+            <Ionicons name="trophy-outline" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tab.Screen
+        name="Profile"
+        component={ProfileScreen}
+        options={{
+          title: "Profile",
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="person-outline" size={size} color={color} />
           ),
         }}
       />
@@ -124,9 +121,5 @@ const styles = StyleSheet.create({
   centerContent: {
     justifyContent: "center",
     alignItems: "center",
-  },
-  tabIcon: {
-    borderWidth: 2,
-    borderRadius: 4,
   },
 });

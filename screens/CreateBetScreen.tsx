@@ -16,18 +16,25 @@ import { useAuth } from "../contexts/AuthContext";
 const dummyEvents: Event[] = [
   {
     id: "eventcustom",
+    category: "custom",
+    title: "Custom Event",
+    status: "upcoming",
   },
   {
     id: "event1",
+    category: "sports",
     league: "NBA",
     teams: ["Lakers", "Warriors"],
+    title: "Lakers vs Warriors",
     start_time: new Date().toISOString(),
     status: "upcoming",
   },
   {
     id: "event2",
+    category: "sports",
     league: "Formula 1",
     teams: ["Hamilton", "Verstappen", "Leclerc"],
+    title: "Formula 1 - Top 3",
     start_time: new Date().toISOString(),
     status: "upcoming",
   },
@@ -35,9 +42,9 @@ const dummyEvents: Event[] = [
 
 export const CreateBetScreen: React.FC = () => {
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
-  const [betType, setBetType] = useState<BetType>("binary");
+  const [betType, setBetType] = useState<BetType>("moneyline");
   const [title, setTitle] = useState("");
-  const [options, setOptions] = useState<string[]>([""]);
+  const [options, setOptions] = useState<string[]>(["", ""]);
   const [stake, setStake] = useState("10");
   const [events, setEvents] = useState<Event[]>(dummyEvents);
   const [loading, setLoading] = useState(false);
@@ -58,6 +65,11 @@ export const CreateBetScreen: React.FC = () => {
     }
   };
 
+  const handleEventSelect = (event: Event) => {
+    setSelectedEvent(event);
+    setTitle("");
+  };
+
   const handleOptionChange = (index: number, value: string) => {
     const newOptions = [...options];
     newOptions[index] = value;
@@ -65,13 +77,13 @@ export const CreateBetScreen: React.FC = () => {
   };
 
   const addOption = () => {
-    if (betType === "multiple-choice" && options.length < 10) {
+    if (betType === "n-way-moneyline" && options.length < 10) {
       setOptions([...options, ""]);
     }
   };
 
   const removeOption = (index: number) => {
-    if (options.length > 2) {
+    if (betType === "n-way-moneyline" && options.length > 2) {
       const newOptions = options.filter((_, i) => i !== index);
       setOptions(newOptions);
     }
@@ -79,10 +91,10 @@ export const CreateBetScreen: React.FC = () => {
 
   const handleBetTypeChange = (type: BetType) => {
     setBetType(type);
-    if (type === "binary") {
+    if (type === "moneyline") {
       setOptions(["", ""]);
-    } else if (type === "multiple-choice" && options.length < 3) {
-      setOptions(["", "", ""]);
+    } else if (type === "n-way-moneyline") {
+      setOptions(options.length < 2 ? ["", ""] : options);
     } else if (type === "target-proximity") {
       setOptions([""]); // Single option for target proximity
     }
@@ -100,14 +112,30 @@ export const CreateBetScreen: React.FC = () => {
     }
 
     const validOptions = options.filter((opt) => opt.trim());
-    if (validOptions.length < 2) {
+    if (betType === "moneyline" && validOptions.length < 2) {
+      Alert.alert("Error", "Please enter 2 options for moneyline");
+      return;
+    }
+
+    if (betType === "n-way-moneyline" && validOptions.length < 2) {
       Alert.alert("Error", "Please enter at least 2 options");
+      return;
+    }
+
+    if (betType === "target-proximity" && validOptions.length < 1) {
+      Alert.alert("Error", "Please enter a target value");
       return;
     }
 
     const stakeAmount = parseFloat(stake);
     if (isNaN(stakeAmount) || stakeAmount <= 0) {
       Alert.alert("Error", "Please enter a valid stake amount");
+      return;
+    } else if (stakeAmount >= 25) {
+      Alert.alert("Error", "Maximum stake allowed is 25 units");
+      return;
+    } else if (stakeAmount > user?.currentBalance) {
+      Alert.alert("Error", "Insufficient balance");
       return;
     }
 
@@ -151,9 +179,9 @@ export const CreateBetScreen: React.FC = () => {
               styles.eventCard,
               selectedEvent?.id === event.id && styles.eventCardSelected,
             ]}
-            onPress={() => setSelectedEvent(event)}
+            onPress={() => handleEventSelect(event)}
           >
-            {event.id == "eventcustom" ? (
+            {event.category === "custom" ? (
               <>
                 <View style={styles.eventPlusContainer}>
                   <Text style={styles.eventPlus}>+</Text>
@@ -178,14 +206,14 @@ export const CreateBetScreen: React.FC = () => {
         <TouchableOpacity
           style={[
             styles.betTypeButton,
-            betType === "binary" && styles.betTypeButtonActive,
+            betType === "moneyline" && styles.betTypeButtonActive,
           ]}
-          onPress={() => handleBetTypeChange("binary")}
+          onPress={() => handleBetTypeChange("moneyline")}
         >
           <Text
             style={[
               styles.betTypeText,
-              betType === "binary" && styles.betTypeTextActive,
+              betType === "moneyline" && styles.betTypeTextActive,
             ]}
           >
             Moneyline
@@ -194,14 +222,14 @@ export const CreateBetScreen: React.FC = () => {
         <TouchableOpacity
           style={[
             styles.betTypeButton,
-            betType === "multiple-choice" && styles.betTypeButtonActive,
+            betType === "n-way-moneyline" && styles.betTypeButtonActive,
           ]}
-          onPress={() => handleBetTypeChange("multiple-choice")}
+          onPress={() => handleBetTypeChange("n-way-moneyline")}
         >
           <Text
             style={[
               styles.betTypeText,
-              betType === "multiple-choice" && styles.betTypeTextActive,
+              betType === "n-way-moneyline" && styles.betTypeTextActive,
             ]}
           >
             n-Way Moneyline
@@ -226,6 +254,7 @@ export const CreateBetScreen: React.FC = () => {
       </View>
 
       <Text style={styles.sectionTitle}>Bet Title</Text>
+
       <TextInput
         style={styles.input}
         value={title}
@@ -246,7 +275,9 @@ export const CreateBetScreen: React.FC = () => {
             value={option}
             onChangeText={(value) => handleOptionChange(index, value)}
             placeholder={
-              betType === "target-proximity" ? "Target" : `Option ${index + 1}`
+              betType === "target-proximity"
+                ? "Target value"
+                : `Option ${index + 1}`
             }
             placeholderTextColor="#666"
           />
@@ -257,7 +288,7 @@ export const CreateBetScreen: React.FC = () => {
           )}
         </View>
       ))}
-      {betType === "multiple-choice" && options.length < 10 && (
+      {betType === "n-way-moneyline" && options.length < 10 && (
         <TouchableOpacity style={styles.addButton} onPress={addOption}>
           <Text style={styles.addButtonText}>+ Add Option</Text>
         </TouchableOpacity>
@@ -350,6 +381,27 @@ const styles = StyleSheet.create({
   eventStatus: {
     fontSize: 12,
     color: "#aaa",
+  },
+  customTypeButton: {
+    backgroundColor: "#1e1e1e",
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginRight: 8,
+    borderWidth: 1,
+    borderColor: "#333",
+  },
+  customTypeButtonActive: {
+    borderColor: "#007AFF",
+    backgroundColor: "#1a2a3a",
+  },
+  customTypeText: {
+    fontSize: 12,
+    color: "#aaa",
+    fontWeight: "600",
+  },
+  customTypeTextActive: {
+    color: "#007AFF",
   },
   betTypeContainer: {
     flexDirection: "row",

@@ -6,7 +6,7 @@ Friends-only betting app with personality. Built with Expo, React Native, and Ty
 
 - **Authentication**: Auth0 integration for secure login
 - **Feed Tab**: Browse active and resolved bets
-- **Create Bet Tab**: Create binary or ranked bets with event selection
+- **Create Bet Tab**: Create moneyline, n-way moneyline, or target proximity bets
 - **Leaderboard Tab**: View rankings with agent-generated messages (Gumloop integration)
 - **Bet Resolution**: Manual and automatic bet resolution
 - **Types**: Full TypeScript support with comprehensive type definitions

@@ -1,4 +1,4 @@
-import { Bet, Event, Wager, LeaderboardEntry, User } from "../types";
+import { Bet, Event, Wager, LeaderboardEntry, User, League } from "../types";
 
 // Backend API base URL - update this with your FastAPI server URL
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || "http://localhost:8000";
@@ -70,7 +70,7 @@ export const getBets = async (params?: {
 export const createBet = async (betData: {
   event_id: string;
   group_id?: string;
-  type: "binary" | "ranked";
+  type: "moneyline" | "n-way-moneyline" | "target-proximity";
   title: string;
   options: string[];
   stake: number;
@@ -123,4 +123,35 @@ export const getLeaderboard = async (params?: {
 // User
 export const getCurrentUser = async (): Promise<User> => {
   return fetchWithAuth("/users/me");
+};
+
+export const updateUserProfile = async (profileData: {
+  username?: string;
+  profile_pic?: string;
+}): Promise<User> => {
+  return fetchWithAuth("/users/me", {
+    method: "PATCH",
+    body: JSON.stringify(profileData),
+  });
+};
+
+// League
+export const updateLeagueName = async (
+  leagueId: string,
+  name: string
+): Promise<League> => {
+  return fetchWithAuth(`/leagues/${leagueId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ name }),
+  });
+};
+
+export const transferCommissioner = async (
+  leagueId: string,
+  newCommissionerId: string
+): Promise<League> => {
+  return fetchWithAuth(`/leagues/${leagueId}/transfer-commissioner`, {
+    method: "POST",
+    body: JSON.stringify({ user_id: newCommissionerId }),
+  });
 };
