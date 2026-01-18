@@ -181,14 +181,35 @@ def health_check():
 @app.get("/users/me")
 def get_current_user(x_user_id: Optional[str] = Header(default=None)):
     user_id = x_user_id or "fake-user-id-123"
+    
+    # User data mapping for fake users
+    user_data_map = {
+        "fake-user-id-123": {
+            "email": "devuser@mchacks.ca",
+            "username": "Dev User",
+            "profile_pic": "https://i.pravatar.cc/150?img=12",
+        },
+        "fake-user-id-456": {
+            "email": "testuser@mchacks.ca",
+            "username": "Test User",
+            "profile_pic": "https://i.pravatar.cc/150?img=1",
+        },
+    }
+    
     user = users_collection.find_one({"user_id": user_id})
     if not user:
+        # Create new user with default data
+        default_data = user_data_map.get(user_id, {
+            "email": f"user_{user_id}@mchacks.com",
+            "username": f"User {user_id[-3:]}",
+            "profile_pic": "https://i.pravatar.cc/150",
+        })
         new_user = {
             "user_id": user_id,
-            "email": "dev@mchacks.com",
-            "username": "Dev User",
-            "balance": 0.0,
-            "profile_pic": "https://i.pravatar.cc/150?img=12",
+            "email": default_data["email"],
+            "username": default_data["username"],
+            "balance": 100.0,
+            "profile_pic": default_data["profile_pic"],
             "group_id": None,
             "league_id": None,
             "total_bets": 0,
@@ -202,6 +223,15 @@ def get_current_user(x_user_id: Optional[str] = Header(default=None)):
         }
         users_collection.insert_one(new_user)
         user = new_user
+    else:
+        # Ensure existing users have a balance field
+        if "balance" not in user:
+            users_collection.update_one(
+                {"user_id": user_id},
+                {"$set": {"balance": 100.0}},
+            )
+            user = users_collection.find_one({"user_id": user_id})
+    
     return serialize_doc(user)
 
 
@@ -323,6 +353,13 @@ def create_wager(wager: WagerCreate, x_user_id: Optional[str] = Header(default=N
         raise HTTPException(status_code=404, detail="Bet not found")
     if bet["status"] != "open":
         raise HTTPException(status_code=400, detail="Bet is not open")
+    
+    # Ensure wager stake matches bet stake
+    if wager.stake != bet["stake"]:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Wager stake must match bet stake of {bet['stake']}"
+        )
 
     user = users_collection.find_one({"user_id": user_id})
     if not user:
@@ -330,8 +367,23 @@ def create_wager(wager: WagerCreate, x_user_id: Optional[str] = Header(default=N
     if user["balance"] < wager.stake:
         raise HTTPException(status_code=400, detail="Insufficient balance")
 
+    # Check if user already has a wager on this bet
+    existing_wager = wagers_collection.find_one({
+        "bet_id": wager.bet_id,
+        "user_id": user_id
+    })
+    if existing_wager:
+        raise HTTPException(status_code=400, detail="You have already placed a wager on this bet")
+
+    # Deduct balance and update stats
     users_collection.update_one(
-        {"user_id": user_id}, {"$inc": {"balance": -wager.stake}}
+        {"user_id": user_id}, 
+        {
+            "$inc": {
+                "balance": -wager.stake,
+                "total_bets": 1
+            }
+        }
     )
 
     new_wager = {
@@ -406,18 +458,28 @@ def resolve_bet(bet_id: str, resolution: BetResolve):
         raise HTTPException(status_code=400, detail="Unknown bet type")
 
     for user_id, row in results.iterrows():
+        payout = float(row["payoff"])
+        status = "won" if row["pnl"] > 0 else "lost"
         wagers_collection.update_one(
             {"bet_id": bet_id, "user_id": user_id},
             {
                 "$set": {
-                    "payout": float(row["payoff"]),
-                    "status": "won" if row["pnl"] > 0 else "lost",
+                    "payout": payout,
+                    "status": status,
                 }
             },
         )
+        
+        # Update user balance with payout
+        user_doc = users_collection.find_one({"user_id": user_id})
+        if user_doc:
+            users_collection.update_one(
+                {"user_id": user_id},
+                {"$inc": {"balance": payout}}
+            )
 
+    # Update user stats (balance is updated separately when updating wagers)
     for user in group.users:
-        user_doc = users_collection.find_one({"user_id": user.user_id})
         users_collection.update_one(
             {"user_id": user.user_id},
             {
@@ -429,7 +491,6 @@ def resolve_bet(bet_id: str, resolution: BetResolve):
                     "greatest_loss": user.greatest_loss,
                     "win_streak": user.win_streak,
                     "total_bets": user.number_of_bets,
-                    "balance": user_doc["balance"] + results.loc[user.user_id, "pnl"],
                 }
             },
         )

@@ -158,8 +158,8 @@ export const getLeaderboard = async (params?: {
 };
 
 // User
-export const getCurrentUser = async (): Promise<User> => {
-  return fetchWithAuth("/users/me");
+export const getCurrentUser = async (userId?: string): Promise<User> => {
+  return fetchWithAuth("/users/me", {}, userId);
 };
 
 export const updateUserProfile = async (profileData: {

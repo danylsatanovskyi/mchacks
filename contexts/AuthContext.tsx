@@ -6,38 +6,36 @@ import {
   // initializeAuth,
 } from "../services/auth0";
 import { UserProfile } from "../types";
+import { getCurrentUser } from "../services/api";
+import { setCurrentUserId } from "../services/api";
 
 interface AuthContextType {
   user: Auth0User | null;
   profile: UserProfile | null;
   isLoading: boolean;
   isAuthenticated: boolean;
-  login: () => Promise<void>;
+  login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   updateProfile: (updates: Partial<UserProfile>) => void;
+  refreshProfile: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// Fake user for development - remove when Auth0 is ready
-const FAKE_USER: Auth0User = {
-  sub: "fake-user-id-123",
-  email: "dev@mchacks.com",
-  name: "Dev User",
-  picture: "https://i.pravatar.cc/150?img=12", // Placeholder avatar
-};
-const FAKE_PROFILE: UserProfile = {
-  user_id: "fake-user-id-123",
-  username: "Dev User",
-  profile_pic: "https://i.pravatar.cc/150?img=12",
-  total_bets: 0,
-  total_wins: 0,
-  total_losses: 0,
-  current_pnl: 0,
-  greatest_win: 0,
-  greatest_loss: 0,
-  win_streak: 0,
-  current_balance: 0,
+// Fake user credentials for development - remove when Auth0 is ready
+const FAKE_CREDENTIALS = {
+  "devuser@mchacks.ca": {
+    password: "devuser",
+    userId: "fake-user-id-123",
+    name: "Dev User",
+    picture: "https://i.pravatar.cc/150?img=12",
+  },
+  "testuser@mchacks.ca": {
+    password: "testuser",
+    userId: "fake-user-id-456",
+    name: "Test User",
+    picture: "https://i.pravatar.cc/150?img=1",
+  },
 };
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
@@ -49,7 +47,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
   useEffect(() => {
     // Fake initialization - skip Auth0 for now
-    setProfile(FAKE_PROFILE);
     setIsLoading(false);
     // TODO: Re-enable when Auth0 is ready
     // const init = async () => {
@@ -65,8 +62,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     // init();
   }, []);
 
-  const handleLogin = async () => {
-    // Fake login - just set the fake user
+  const handleLogin = async (email: string, password: string) => {
+    // Fake login - validate credentials and fetch user from backend
     // TODO: Re-enable Auth0 login when ready
     // try {
     //   const { user: authUser } = await auth0Login();
@@ -76,10 +73,49 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     //   throw error;
     // }
     
-    // Simulate a small delay for realism
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    setUser(FAKE_USER);
-    setProfile(FAKE_PROFILE);
+    const normalizedEmail = email.toLowerCase().trim();
+    const credentials = FAKE_CREDENTIALS[normalizedEmail];
+    
+    if (!credentials || credentials.password !== password) {
+      throw new Error("Invalid email or password");
+    }
+
+    // Set the user ID for API calls
+    setCurrentUserId(credentials.userId);
+    
+    // Fetch user profile from backend (this will create the user if it doesn't exist)
+    try {
+      const userData = await getCurrentUser(credentials.userId);
+      
+      // Create Auth0User object
+      const auth0User: Auth0User = {
+        sub: credentials.userId,
+        email: normalizedEmail,
+        name: credentials.name,
+        picture: credentials.picture,
+      };
+      
+      // Create UserProfile from backend data
+      const userProfile: UserProfile = {
+        user_id: userData.id || userData.user_id || credentials.userId,
+        username: userData.username || credentials.name,
+        profile_pic: userData.profile_pic || credentials.picture,
+        total_bets: userData.total_bets || 0,
+        total_wins: userData.total_wins || 0,
+        total_losses: userData.total_losses || 0,
+        current_pnl: userData.current_pnl || 0,
+        greatest_win: userData.greatest_win || 0,
+        greatest_loss: userData.greatest_loss || 0,
+        win_streak: userData.win_streak || 0,
+        current_balance: userData.balance || 0,
+      };
+      
+      setUser(auth0User);
+      setProfile(userProfile);
+    } catch (error) {
+      console.error("Error fetching user profile:", error);
+      throw new Error("Failed to load user profile");
+    }
   };
 
   const handleLogout = async () => {
@@ -99,6 +135,32 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     setProfile((prev) => (prev ? { ...prev, ...updates } : prev));
   }, []);
 
+  const refreshProfile = useCallback(async () => {
+    if (!user) return;
+    
+    try {
+      const userData = await getCurrentUser(user.sub);
+      
+      const userProfile: UserProfile = {
+        user_id: userData.id || userData.user_id || user.sub,
+        username: userData.username || user.name,
+        profile_pic: userData.profile_pic || user.picture,
+        total_bets: userData.total_bets || 0,
+        total_wins: userData.total_wins || 0,
+        total_losses: userData.total_losses || 0,
+        current_pnl: userData.current_pnl || 0,
+        greatest_win: userData.greatest_win || 0,
+        greatest_loss: userData.greatest_loss || 0,
+        win_streak: userData.win_streak || 0,
+        current_balance: userData.balance || 0,
+      };
+      
+      setProfile(userProfile);
+    } catch (error) {
+      console.error("Error refreshing profile:", error);
+    }
+  }, [user]);
+
   return (
     <AuthContext.Provider
       value={{
@@ -109,6 +171,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         login: handleLogin,
         logout: handleLogout,
         updateProfile,
+        refreshProfile,
       }}
     >
       {children}

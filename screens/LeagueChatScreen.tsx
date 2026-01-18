@@ -14,9 +14,18 @@ import {
 import { Bet, Wager, LeagueMember } from "../types";
 import { useAuth } from "../contexts/AuthContext";
 import { getBets, createWager, getWagers, getUser } from "../services/api";
+import { BetResolutionModal } from "../components/BetResolutionModal";
 
 // Dummy league data (same as LeagueScreen)
 const dummyLeagueId = "league1";
+const dummyLeague = {
+  id: "league1",
+  name: "The Champions League",
+  commissioner_id: "fake-user-id-123",
+  created_at: new Date().toISOString(),
+  member_ids: ["fake-user-id-123", "fake-user-id-456"],
+  invite_code: "CHAMP2024",
+};
 const dummyMembers: LeagueMember[] = [
   {
     user_id: "fake-user-id-123",
@@ -26,16 +35,9 @@ const dummyMembers: LeagueMember[] = [
     is_commissioner: true,
   },
   {
-    user_id: "user2",
-    username: "Player2",
+    user_id: "fake-user-id-456",
+    username: "Player Two",
     profile_pic: "https://i.pravatar.cc/150?img=1",
-    joined_at: new Date().toISOString(),
-    is_commissioner: false,
-  },
-  {
-    user_id: "user3",
-    username: "Player3",
-    profile_pic: "https://i.pravatar.cc/150?img=2",
     joined_at: new Date().toISOString(),
     is_commissioner: false,
   },
@@ -52,7 +54,7 @@ interface ChatMessage {
 }
 
 export const LeagueChatScreen: React.FC = () => {
-  const { user, profile } = useAuth();
+  const { user, profile, refreshProfile } = useAuth();
   const [bets, setBets] = useState<Bet[]>([]);
   const [wagers, setWagers] = useState<Wager[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -60,24 +62,62 @@ export const LeagueChatScreen: React.FC = () => {
   const [selectedBet, setSelectedBet] = useState<Bet | null>(null);
   const [showWagerModal, setShowWagerModal] = useState(false);
   const [selectedOption, setSelectedOption] = useState<string>("");
-  const [wagerStake, setWagerStake] = useState<string>("");
   const [members] = useState<LeagueMember[]>(dummyMembers);
   const [userMap, setUserMap] = useState<Record<string, { username: string; profile_pic?: string }>>({});
+  const [showResolutionModal, setShowResolutionModal] = useState(false);
+  const [betPotAmounts, setBetPotAmounts] = useState<Record<string, number>>({});
+  const [resolutionToast, setResolutionToast] = useState("");
 
   const loadBets = async () => {
     try {
-      const [betsData, wagersData] = await Promise.all([
-        getBets({ group_id: dummyLeagueId }),
+      // Fetch ALL open bets (not filtered by league) and league-specific bets
+      const [allBetsData, leagueBetsData, wagersData] = await Promise.all([
+        getBets({ status: "open" }), // Get all open bets
+        getBets({ group_id: dummyLeagueId }), // Get league-specific bets
         getWagers({ group_id: dummyLeagueId }),
       ]);
       
+      // Combine bets - prioritize league bets, but include all open bets
+      const betsSet = new Map<string, Bet>();
+      // First add all open bets
+      allBetsData.forEach((bet) => betsSet.set(bet.id, bet));
+      // Then add league-specific bets (this ensures we have all bets)
+      leagueBetsData.forEach((bet) => betsSet.set(bet.id, bet));
+      const betsData = Array.from(betsSet.values());
+
+      // Fetch wagers for all bets, not just league-specific ones
+      const allBetIds = betsData.map((b) => b.id);
+      let allWagersData = wagersData;
+      if (allBetIds.length > 0) {
+        try {
+          // Fetch wagers for all bets
+          const additionalWagers = await Promise.all(
+            allBetIds.map((betId) => getWagers({ bet_id: betId }))
+          );
+          const flatWagers = additionalWagers.flat();
+          // Deduplicate wagers
+          const wagerMap = new Map<string, Wager>();
+          [...wagersData, ...flatWagers].forEach((w) => wagerMap.set(w.id, w));
+          allWagersData = Array.from(wagerMap.values());
+        } catch (error) {
+          console.error("Error fetching additional wagers:", error);
+        }
+      }
+      
       setBets(betsData);
-      setWagers(wagersData);
+      setWagers(allWagersData);
+
+      // Calculate pot amounts for each bet
+      const potMap: Record<string, number> = {};
+      allWagersData.forEach((wager) => {
+        potMap[wager.bet_id] = (potMap[wager.bet_id] || 0) + wager.stake;
+      });
+      setBetPotAmounts(potMap);
 
       // Fetch user information for wagers
       const userIds = new Set<string>();
       betsData.forEach((bet) => userIds.add(bet.creator_id));
-      wagersData.forEach((wager) => userIds.add(wager.user_id));
+      allWagersData.forEach((wager) => userIds.add(wager.user_id));
 
       const userInfoMap: Record<string, { username: string; profile_pic?: string }> = {};
       await Promise.all(
@@ -98,29 +138,39 @@ export const LeagueChatScreen: React.FC = () => {
       );
       setUserMap(userInfoMap);
 
-      // Convert bets to chat messages
-      const betMessages: ChatMessage[] = betsData.map((bet) => ({
-        id: `bet-${bet.id}`,
-        type: "bet_notification",
-        bet,
-        user_id: bet.creator_id,
-        username: userInfoMap[bet.creator_id]?.username || "Unknown",
-        timestamp: bet.created_at,
-      }));
-
-      // Convert wagers to chat messages
-      const wagerMessages: ChatMessage[] = wagersData.map((wager) => {
-        const bet = betsData.find((b) => b.id === wager.bet_id);
-        return {
-          id: `wager-${wager.id}`,
-          type: "wager_placed",
+      // Convert bets to chat messages - only include open bets
+      const betMessages: ChatMessage[] = betsData
+        .filter((bet) => bet.status === "open")
+        .map((bet) => ({
+          id: `bet-${bet.id}`,
+          type: "bet_notification",
           bet,
-          user_id: wager.user_id,
-          username: userInfoMap[wager.user_id]?.username || "Unknown",
-          message: `placed ${wager.stake} units on "${wager.selection}"`,
-          timestamp: wager.created_at,
-        };
-      });
+          user_id: bet.creator_id,
+          username: userInfoMap[bet.creator_id]?.username || "Unknown",
+          timestamp: bet.created_at,
+        }));
+
+      // Convert wagers to chat messages - only include wagers for open bets
+      const wagerMessages: ChatMessage[] = allWagersData
+        .filter((wager) => {
+          const bet = betsData.find((b) => b.id === wager.bet_id);
+          return bet && bet.status === "open";
+        })
+        .map((wager) => {
+          const bet = betsData.find((b) => b.id === wager.bet_id);
+          const payoutText = wager.payout !== undefined && wager.payout !== null
+            ? ` (Payout: $${wager.payout.toFixed(2)})`
+            : "";
+          return {
+            id: `wager-${wager.id}`,
+            type: "wager_placed",
+            bet,
+            user_id: wager.user_id,
+            username: userInfoMap[wager.user_id]?.username || "Unknown",
+            message: `placed $${wager.stake} on "${wager.selection}"${payoutText}`,
+            timestamp: wager.created_at,
+          };
+        });
 
       // Combine and sort by timestamp
       const allMessages = [...betMessages, ...wagerMessages];
@@ -151,21 +201,13 @@ export const LeagueChatScreen: React.FC = () => {
   }, [user]);
 
   const handlePlaceWager = async () => {
-    if (!selectedBet || !selectedOption || !wagerStake) {
-      Alert.alert("Error", "Please select an option and enter a stake amount");
+    if (!selectedBet || !selectedOption) {
+      Alert.alert("Error", "Please select an option");
       return;
     }
 
-    const stake = parseFloat(wagerStake);
-    if (isNaN(stake) || stake <= 0) {
-      Alert.alert("Error", "Please enter a valid stake amount");
-      return;
-    }
-
-    if (stake > 25) {
-      Alert.alert("Error", "Maximum stake is 25 units");
-      return;
-    }
+    // Use the exact stake amount from the bet
+    const stake = selectedBet.stake;
 
     try {
       console.log("Creating wager with bet_id:", selectedBet.id);
@@ -176,11 +218,12 @@ export const LeagueChatScreen: React.FC = () => {
       }, user?.sub || "fake-user-id-123");
 
       console.log("Wager created successfully:", createdWager);
+      // Refresh profile immediately to update balance
+      await refreshProfile();
       Alert.alert("Success", "Wager placed successfully!");
       setShowWagerModal(false);
       setSelectedBet(null);
       setSelectedOption("");
-      setWagerStake("");
       await loadBets(); // Refresh bets and wagers to show updated status
     } catch (error: any) {
       console.error("Error creating wager:", error);
@@ -238,16 +281,32 @@ export const LeagueChatScreen: React.FC = () => {
               ))}
             </View>
             <View style={styles.betFooter}>
-              <Text style={styles.stake}>Stake: {item.bet.stake} units</Text>
+              <Text style={styles.stake}>Stake: ${item.bet.stake}</Text>
+              <Text style={styles.potAmount}>
+                Pot: ${betPotAmounts[item.bet.id] || 0}
+              </Text>
               <Text style={styles.status}>Status: {item.bet.status}</Text>
             </View>
             {item.bet.status === "open" && (
-              <TouchableOpacity
-                style={styles.placeWagerButton}
-                onPress={() => openWagerModal(item.bet!)}
-              >
-                <Text style={styles.placeWagerButtonText}>Place Wager</Text>
-              </TouchableOpacity>
+              <>
+                <TouchableOpacity
+                  style={styles.placeWagerButton}
+                  onPress={() => openWagerModal(item.bet!)}
+                >
+                  <Text style={styles.placeWagerButtonText}>Place Wager</Text>
+                </TouchableOpacity>
+                {dummyLeague.commissioner_id === user?.sub && (
+                  <TouchableOpacity
+                    style={styles.resolveButton}
+                    onPress={() => {
+                      setSelectedBet(item.bet);
+                      setShowResolutionModal(true);
+                    }}
+                  >
+                    <Text style={styles.resolveButtonText}>Resolve Bet</Text>
+                  </TouchableOpacity>
+                )}
+              </>
             )}
           </View>
         </View>
@@ -368,26 +427,23 @@ export const LeagueChatScreen: React.FC = () => {
                   </View>
                 )}
 
-                <Text style={styles.modalLabel}>Stake Amount:</Text>
-                <TextInput
-                  style={styles.stakeInput}
-                  placeholder="Enter stake (max 25)"
-                  placeholderTextColor="#666"
-                  value={wagerStake}
-                  onChangeText={setWagerStake}
-                  keyboardType="numeric"
-                />
+                <View style={styles.stakeInfoContainer}>
+                  <Text style={styles.modalLabel}>Stake Amount:</Text>
+                  <Text style={styles.fixedStakeAmount}>${selectedBet.stake}</Text>
+                  <Text style={styles.stakeInfoText}>
+                    This bet requires a fixed stake of ${selectedBet.stake}
+                  </Text>
+                </View>
 
                 <View style={styles.modalButtons}>
                   <TouchableOpacity
                     style={[styles.modalButton, styles.cancelButton]}
                     onPress={() => {
-                      setShowWagerModal(false);
-                      setSelectedBet(null);
-                      setSelectedOption("");
-                      setWagerStake("");
-                    }}
-                  >
+                    setShowWagerModal(false);
+                    setSelectedBet(null);
+                    setSelectedOption("");
+                  }}
+                >
                     <Text style={styles.cancelButtonText}>Cancel</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
@@ -402,6 +458,30 @@ export const LeagueChatScreen: React.FC = () => {
           </View>
         </View>
       </Modal>
+
+      {/* Resolution Modal */}
+      <BetResolutionModal
+        visible={showResolutionModal}
+        bet={selectedBet}
+        onClose={() => {
+          setShowResolutionModal(false);
+          setSelectedBet(null);
+        }}
+        onResolved={async () => {
+          // Refresh profile first to update balance
+          await refreshProfile();
+          await loadBets();
+          setResolutionToast("Bet resolved");
+          setTimeout(() => setResolutionToast(""), 2500);
+        }}
+        isCommissioner={dummyLeague.commissioner_id === user?.sub}
+        commissionerId={dummyLeague.commissioner_id}
+      />
+      {resolutionToast ? (
+        <View style={styles.toastContainer}>
+          <Text style={styles.toastText}>{resolutionToast}</Text>
+        </View>
+      ) : null}
     </View>
   );
 };
@@ -482,9 +562,42 @@ const styles = StyleSheet.create({
     color: "#007AFF",
     fontWeight: "600",
   },
+  potAmount: {
+    fontSize: 14,
+    color: "#34C759",
+    fontWeight: "600",
+  },
   status: {
     fontSize: 14,
     color: "#888",
+  },
+  resolveButton: {
+    backgroundColor: "#FF9500",
+    borderRadius: 8,
+    padding: 12,
+    marginTop: 8,
+    alignItems: "center",
+  },
+  resolveButtonText: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  stakeInfoContainer: {
+    marginTop: 16,
+    marginBottom: 16,
+  },
+  fixedStakeAmount: {
+    fontSize: 24,
+    fontWeight: "bold",
+    color: "#007AFF",
+    marginTop: 8,
+    marginBottom: 8,
+  },
+  stakeInfoText: {
+    fontSize: 12,
+    color: "#888",
+    fontStyle: "italic",
   },
   placeWagerButton: {
     backgroundColor: "#007AFF",
@@ -544,6 +657,22 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#666",
     marginTop: 8,
+  },
+  toastContainer: {
+    position: "absolute",
+    bottom: 24,
+    alignSelf: "center",
+    backgroundColor: "rgba(0, 0, 0, 0.85)",
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: "#333",
+  },
+  toastText: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "600",
   },
   avatarPlaceholder: {
     backgroundColor: "#2a2a2a",

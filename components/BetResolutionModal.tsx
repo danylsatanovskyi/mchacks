@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -9,8 +9,8 @@ import {
   Alert,
   Switch,
 } from "react-native";
-import { Bet } from "../types";
-import { resolveBet } from "../services/api";
+import { Bet, Wager } from "../types";
+import { resolveBet, getBetWagers } from "../services/api";
 import { useAuth } from "../contexts/AuthContext";
 
 interface BetResolutionModalProps {
@@ -19,6 +19,7 @@ interface BetResolutionModalProps {
   onClose: () => void;
   onResolved: () => void;
   isCommissioner?: boolean;
+  commissionerId?: string;
 }
 
 export const BetResolutionModal: React.FC<BetResolutionModalProps> = ({
@@ -27,6 +28,7 @@ export const BetResolutionModal: React.FC<BetResolutionModalProps> = ({
   onClose,
   onResolved,
   isCommissioner = false,
+  commissionerId,
 }) => {
   const { user } = useAuth();
   const [selectedWinner, setSelectedWinner] = useState<string>("");
@@ -36,6 +38,25 @@ export const BetResolutionModal: React.FC<BetResolutionModalProps> = ({
   const [targetResult, setTargetResult] = useState("");
   const [note, setNote] = useState("");
   const [loading, setLoading] = useState(false);
+  const [commissionerWager, setCommissionerWager] = useState<Wager | null>(null);
+
+  useEffect(() => {
+    const loadCommissionerWager = async () => {
+      if (bet && isCommissioner && commissionerId) {
+        try {
+          const wagers = await getBetWagers(bet.id);
+          const commWager = wagers.find(w => w.user_id === commissionerId);
+          setCommissionerWager(commWager || null);
+        } catch (error) {
+          console.error("Error loading commissioner wager:", error);
+        }
+      }
+    };
+    
+    if (visible && bet) {
+      loadCommissionerWager();
+    }
+  }, [visible, bet, isCommissioner, commissionerId]);
 
   if (!bet) return null;
 
@@ -43,18 +64,36 @@ export const BetResolutionModal: React.FC<BetResolutionModalProps> = ({
   const canResolve = isBetCreator || isCommissioner;
 
   const handleSubmit = async () => {
-    if (!isFinished && didHit === undefined) {
-      Alert.alert("Error", "Please mark if the bet finished and whether it hit");
+    if (isCommissioner && !commissionerId) {
+      Alert.alert("Error", "Commissioner ID not provided");
       return;
     }
 
-    if (isFinished && bet.type !== "target-proximity" && !selectedWinner) {
-      Alert.alert("Error", "Please select a winner");
-      return;
-    }
-    if (isFinished && bet.type === "target-proximity" && !targetResult.trim()) {
-      Alert.alert("Error", "Please enter the final target value");
-      return;
+    // For commissioner, only need didHit
+    if (isCommissioner) {
+      if (didHit === undefined) {
+        Alert.alert("Error", "Please mark if the bet hit");
+        return;
+      }
+      if (!commissionerWager) {
+        Alert.alert("Error", "Commissioner must place a wager before resolving");
+        return;
+      }
+    } else {
+      // For bet creator, need all fields
+      if (!isFinished && didHit === undefined) {
+        Alert.alert("Error", "Please mark if the bet finished and whether it hit");
+        return;
+      }
+
+      if (isFinished && bet.type !== "target-proximity" && !selectedWinner) {
+        Alert.alert("Error", "Please select a winner");
+        return;
+      }
+      if (isFinished && bet.type === "target-proximity" && !targetResult.trim()) {
+        Alert.alert("Error", "Please enter the final target value");
+        return;
+      }
     }
 
     setLoading(true);
@@ -63,14 +102,43 @@ export const BetResolutionModal: React.FC<BetResolutionModalProps> = ({
         ? "commissioner_override"
         : "manual";
 
+      // For commissioner, use their wager selection as the winner
+      let winner: string;
+      if (isCommissioner && commissionerWager) {
+        if (bet.type === "target-proximity") {
+          // For target-proximity, if it hit, use the commissioner's guess, otherwise need actual value
+          if (didHit) {
+            winner = commissionerWager.selection;
+          } else {
+            if (!targetResult.trim()) {
+              Alert.alert("Error", "Please enter the actual target value since it didn't hit");
+              setLoading(false);
+              return;
+            }
+            winner = targetResult.trim();
+          }
+        } else {
+          // For other bet types, if it hit, use commissioner's selection, otherwise use the other option
+          if (didHit) {
+            winner = commissionerWager.selection;
+          } else {
+            // Find the option that wasn't selected by commissioner
+            const otherOption = bet.options.find(opt => opt !== commissionerWager.selection);
+            winner = otherOption || bet.options[0];
+          }
+        }
+      } else {
+        // For bet creator, use selected winner or target result
+        winner = bet.type === "target-proximity"
+          ? targetResult.trim()
+          : selectedWinner;
+      }
+
       await resolveBet(bet.id, {
-        winner:
-          bet.type === "target-proximity"
-            ? targetResult.trim()
-            : selectedWinner,
+        winner,
         mode: resolutionMode,
         did_hit: didHit,
-        is_finished: isFinished,
+        is_finished: isFinished || isCommissioner, // Commissioner resolution means it's finished
         note: note.trim() || undefined,
       });
 
@@ -100,18 +168,28 @@ export const BetResolutionModal: React.FC<BetResolutionModalProps> = ({
             </View>
           )}
 
-          {/* Bet Status Toggles */}
-          <View style={styles.toggleRow}>
-            <Text style={styles.toggleLabel}>Bet Finished:</Text>
-            <Switch
-              value={isFinished}
-              onValueChange={setIsFinished}
-              trackColor={{ false: "#333", true: "#007AFF" }}
-              thumbColor="#fff"
-            />
-          </View>
+          {isCommissioner && commissionerWager && (
+            <View style={styles.commissionerInfo}>
+              <Text style={styles.commissionerInfoText}>
+                Your selection: {commissionerWager.selection}
+              </Text>
+            </View>
+          )}
 
-          {isFinished && (
+          {/* Bet Status Toggles - only show for bet creator */}
+          {!isCommissioner && (
+            <View style={styles.toggleRow}>
+              <Text style={styles.toggleLabel}>Bet Finished:</Text>
+              <Switch
+                value={isFinished}
+                onValueChange={setIsFinished}
+                trackColor={{ false: "#333", true: "#007AFF" }}
+                thumbColor="#fff"
+              />
+            </View>
+          )}
+
+          {(isFinished || isCommissioner) && (
             <View style={styles.toggleRow}>
               <Text style={styles.toggleLabel}>Did it Hit:</Text>
               <View style={styles.hitToggleContainer}>
@@ -163,7 +241,21 @@ export const BetResolutionModal: React.FC<BetResolutionModalProps> = ({
             </View>
           )}
 
-          {isFinished && bet.type === "target-proximity" && (
+          {isCommissioner && !didHit && bet.type === "target-proximity" && (
+            <View>
+              <Text style={styles.label}>Actual Target Value (since it didn't hit):</Text>
+              <TextInput
+                style={styles.noteInput}
+                value={targetResult}
+                onChangeText={setTargetResult}
+                placeholder="e.g., 120"
+                keyboardType="numeric"
+                placeholderTextColor="#666"
+              />
+            </View>
+          )}
+
+          {!isCommissioner && isFinished && bet.type === "target-proximity" && (
             <View>
               <Text style={styles.label}>Final Target Value:</Text>
               <TextInput
@@ -177,7 +269,7 @@ export const BetResolutionModal: React.FC<BetResolutionModalProps> = ({
             </View>
           )}
 
-          {isFinished && bet.type !== "target-proximity" && (
+          {!isCommissioner && isFinished && bet.type !== "target-proximity" && (
             <View>
               <Text style={styles.label}>Select Winner:</Text>
               {bet.options.map((option) => (
@@ -390,5 +482,19 @@ const styles = StyleSheet.create({
   },
   hitToggleTextActiveMiss: {
     color: "#FF3B30",
+  },
+  commissionerInfo: {
+    backgroundColor: "#2a2a2a",
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: "#FFD700",
+  },
+  commissionerInfoText: {
+    color: "#FFD700",
+    fontSize: 14,
+    fontWeight: "600",
+    textAlign: "center",
   },
 });

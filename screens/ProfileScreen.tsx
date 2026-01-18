@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { useFocusEffect } from "@react-navigation/native";
 import {
   View,
   Text,
@@ -43,7 +44,7 @@ const StatCard: React.FC<{
 );
 
 export const ProfileScreen: React.FC = () => {
-  const { user, logout, profile: authProfile, updateProfile } = useAuth();
+  const { user, logout, profile: authProfile, updateProfile, refreshProfile } = useAuth();
   const [profileState, setProfileState] = useState<UserProfile>(dummyProfile);
   const [showEditModal, setShowEditModal] = useState(false);
   const [editUsername, setEditUsername] = useState(profileState.username);
@@ -52,9 +53,11 @@ export const ProfileScreen: React.FC = () => {
 
   useEffect(() => {
     const loadProfile = async () => {
+      if (!user) return;
+      
       try {
         const data = await getCurrentUser();
-        setProfileState({
+        const profileData = {
           user_id: data.id || data.user_id,
           username: data.username,
           profile_pic: data.profile_pic,
@@ -66,20 +69,9 @@ export const ProfileScreen: React.FC = () => {
           greatest_loss: data.greatest_loss || 0,
           win_streak: data.win_streak || 0,
           current_balance: data.balance || 0,
-        });
-        updateProfile({
-          user_id: data.id || data.user_id,
-          username: data.username,
-          profile_pic: data.profile_pic,
-          total_bets: data.total_bets || 0,
-          total_wins: data.total_wins || 0,
-          total_losses: data.total_losses || 0,
-          current_pnl: data.current_pnl || 0,
-          greatest_win: data.greatest_win || 0,
-          greatest_loss: data.greatest_loss || 0,
-          win_streak: data.win_streak || 0,
-          current_balance: data.balance || 0,
-        });
+        };
+        setProfileState(profileData);
+        updateProfile(profileData);
       } catch (error) {
         console.error("Error loading profile:", error);
       }
@@ -87,9 +79,28 @@ export const ProfileScreen: React.FC = () => {
 
     if (user) {
       loadProfile();
+    } else {
+      // Reset profile when logged out
+      setProfileState(dummyProfile);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
+
+  // Update profileState when authProfile changes (from refreshProfile calls)
+  useEffect(() => {
+    if (authProfile) {
+      setProfileState(authProfile);
+    }
+  }, [authProfile]);
+
+  // Refresh profile when screen comes into focus
+  useFocusEffect(
+    React.useCallback(() => {
+      if (user) {
+        refreshProfile();
+      }
+    }, [user, refreshProfile])
+  );
 
   const handleLogout = async () => {
     await logout();

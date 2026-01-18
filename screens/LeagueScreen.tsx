@@ -109,7 +109,7 @@ export const LeagueScreen: React.FC = () => {
 
   const loadLeaderboard = async () => {
     try {
-      const data = await getLeaderboard({ group_id: league.id });
+      const data = await getLeaderboard();
       setLeaderboard(data);
     } catch (error) {
       console.error("Error loading leaderboard:", error);

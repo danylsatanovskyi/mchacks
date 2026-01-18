@@ -13,6 +13,7 @@ import {
 import { Bet, Wager, User } from "../types";
 import { getBets, getBetWagers, getUser } from "../services/api";
 import { useAuth } from "../contexts/AuthContext";
+import { BetResolutionModal } from "../components/BetResolutionModal";
 
 export const FeedScreen: React.FC = () => {
   const [bets, setBets] = useState<Bet[]>([]);
@@ -22,12 +23,56 @@ export const FeedScreen: React.FC = () => {
   const [wagers, setWagers] = useState<Wager[]>([]);
   const [wagerUsers, setWagerUsers] = useState<Record<string, User>>({});
   const [loadingWagers, setLoadingWagers] = useState(false);
-  const { user } = useAuth();
+  const [showResolutionModal, setShowResolutionModal] = useState(false);
+  const [resolutionToast, setResolutionToast] = useState("");
+  const { user, refreshProfile } = useAuth();
+  
+  // Dummy league for commissioner check
+  const dummyLeague = {
+    id: "league1",
+    name: "The Champions League",
+    commissioner_id: "fake-user-id-123",
+    created_at: new Date().toISOString(),
+    member_ids: ["fake-user-id-123", "fake-user-id-456"],
+    invite_code: "CHAMP2024",
+  };
 
   const loadBets = async () => {
     try {
       const data = await getBets();
-      setBets(data);
+      const sortedBets = [...data].sort((a, b) => {
+        if (a.status === "open" && b.status !== "open") return -1;
+        if (a.status !== "open" && b.status === "open") return 1;
+        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      });
+      setBets(sortedBets);
+      
+      // Load wagers for resolved bets to calculate profits
+      const resolvedBets = sortedBets.filter((b) => b.status === "resolved");
+      const allWagers: Wager[] = [];
+      await Promise.all(
+        resolvedBets.map(async (bet) => {
+          try {
+            const betWagers = await getBetWagers(bet.id);
+            allWagers.push(...betWagers);
+          } catch (error) {
+            console.error(`Error loading wagers for bet ${bet.id}:`, error);
+          }
+        })
+      );
+      // Merge with existing wagers, keeping only latest
+      setWagers((prev) => {
+        const merged = [...prev];
+        allWagers.forEach(w => {
+          const index = merged.findIndex(existing => existing.id === w.id);
+          if (index >= 0) {
+            merged[index] = w;
+          } else {
+            merged.push(w);
+          }
+        });
+        return merged;
+      });
     } catch (error) {
       console.error("Error loading bets:", error);
     }
@@ -51,7 +96,11 @@ export const FeedScreen: React.FC = () => {
     setLoadingWagers(true);
     try {
       const wagersData = await getBetWagers(bet.id);
-      setWagers(wagersData);
+      // Store wagers in a map keyed by bet_id for profit calculation
+      setWagers((prev) => {
+        const newWagers = [...prev.filter(w => w.bet_id !== bet.id), ...wagersData];
+        return newWagers;
+      });
       
       // Fetch user information for each wager
       const usersMap: Record<string, User> = {};
@@ -91,10 +140,37 @@ export const FeedScreen: React.FC = () => {
       </View>
       <View style={styles.betFooter}>
         <Text style={styles.stake}>Stake: ${item.stake}</Text>
+        {item.status === "open" && dummyLeague.commissioner_id === user?.sub && (
+          <TouchableOpacity
+            style={styles.resolveButton}
+            onPress={() => {
+              setSelectedBet(item);
+              setShowResolutionModal(true);
+            }}
+          >
+            <Text style={styles.resolveButtonText}>Resolve</Text>
+          </TouchableOpacity>
+        )}
         {item.status === "resolved" && item.winner && (
           <Text style={styles.winner}>Winner: {item.winner}</Text>
         )}
       </View>
+      {item.status === "resolved" && (() => {
+        const userWager = wagers.find(w => w.bet_id === item.id && w.user_id === user?.sub);
+        if (userWager && userWager.payout !== undefined && userWager.payout !== null) {
+          const profit = userWager.payout - userWager.stake;
+          const profitColor = profit >= 0 ? "#34C759" : "#FF3B30";
+          return (
+            <View style={styles.profitContainer}>
+              <Text style={styles.profitLabel}>Your Profit:</Text>
+              <Text style={[styles.profitAmount, { color: profitColor }]}>
+                {profit >= 0 ? `+$${profit.toFixed(2)}` : `-$${Math.abs(profit).toFixed(2)}`}
+              </Text>
+            </View>
+          );
+        }
+        return null;
+      })()}
     </TouchableOpacity>
   );
 
@@ -180,9 +256,14 @@ export const FeedScreen: React.FC = () => {
                   </View>
 
                   <View style={styles.modalSection}>
-                    <Text style={styles.modalSectionTitle}>
-                      Participants ({wagers.length})
-                    </Text>
+                    <View style={styles.modalSectionHeader}>
+                      <Text style={styles.modalSectionTitle}>
+                        Participants ({wagers.length})
+                      </Text>
+                      <Text style={styles.potAmount}>
+                        Pot: ${wagers.reduce((sum, w) => sum + w.stake, 0)}
+                      </Text>
+                    </View>
                     {loadingWagers ? (
                       <Text style={styles.loadingText}>Loading wagers...</Text>
                     ) : wagers.length === 0 ? (
@@ -235,6 +316,30 @@ export const FeedScreen: React.FC = () => {
           </View>
         </View>
       </Modal>
+
+      {/* Resolution Modal */}
+      <BetResolutionModal
+        visible={showResolutionModal}
+        bet={selectedBet}
+        onClose={() => {
+          setShowResolutionModal(false);
+          setSelectedBet(null);
+        }}
+        onResolved={async () => {
+          // Refresh profile first to update balance
+          await refreshProfile();
+          await loadBets();
+          setResolutionToast("Bet resolved");
+          setTimeout(() => setResolutionToast(""), 2500);
+        }}
+        isCommissioner={dummyLeague.commissioner_id === user?.sub}
+        commissionerId={dummyLeague.commissioner_id}
+      />
+      {resolutionToast ? (
+        <View style={styles.toastContainer}>
+          <Text style={styles.toastText}>{resolutionToast}</Text>
+        </View>
+      ) : null}
     </View>
   );
 };
@@ -393,11 +498,32 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "#333",
   },
+  modalSectionHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 12,
+  },
   modalSectionTitle: {
     fontSize: 18,
     fontWeight: "bold",
     color: "#fff",
-    marginBottom: 12,
+  },
+  potAmount: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#34C759",
+  },
+  resolveButton: {
+    backgroundColor: "#FF9500",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+  },
+  resolveButtonText: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "600",
   },
   optionRow: {
     marginBottom: 8,
@@ -472,5 +598,39 @@ const styles = StyleSheet.create({
     textAlign: "center",
     padding: 20,
     fontStyle: "italic",
+  },
+  profitContainer: {
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: "#333",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  profitLabel: {
+    fontSize: 14,
+    color: "#aaa",
+    fontWeight: "600",
+  },
+  profitAmount: {
+    fontSize: 18,
+    fontWeight: "bold",
+  },
+  toastContainer: {
+    position: "absolute",
+    bottom: 24,
+    alignSelf: "center",
+    backgroundColor: "rgba(0, 0, 0, 0.85)",
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: "#333",
+  },
+  toastText: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "600",
   },
 });

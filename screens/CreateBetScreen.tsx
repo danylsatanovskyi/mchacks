@@ -108,7 +108,7 @@ export const CreateBetScreen: React.FC = () => {
       Alert.alert("Error", "Please enter a valid stake amount");
       return;
     } else if (stakeAmount >= 25) {
-      Alert.alert("Error", "Maximum stake allowed is 25 units");
+      Alert.alert("Error", "Maximum stake allowed is $25");
       return;
     } else if (stakeAmount > user?.currentBalance) {
       Alert.alert("Error", "Insufficient balance");
