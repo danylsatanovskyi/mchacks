@@ -4,6 +4,12 @@ from datetime import datetime, timedelta
 from fuzzywuzzy import fuzz
 from fuzzywuzzy import process
 
+'''sports_api: 139f82b9b334587827c3b41cc94cc58d
+gumloop_API_KEY = "011931333843413982a3fe500c4c1b84"
+gumloop_USER_ID = "KmBUUScbzvdPDMRsWAfOuaxnkzF3"
+gumloop: SAVED_ITEM_ID = "fGasRrQ3voLDvzXUfRVkXw"'''
+
+
 class SoccerBettingSystem:
     def __init__(self, api_sports_key, gumloop_api_key, user_id, saved_item_id):
         # API-Sports config
