@@ -8,3 +8,4 @@ apscheduler
 pydantic
 python-multipart
 python-dotenv
+fuzzywuzzy

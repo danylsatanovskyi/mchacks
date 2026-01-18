@@ -9,7 +9,7 @@ import {
   Alert,
 } from "react-native";
 import { BetType, Event } from "../types";
-import { getEvents, createBet } from "../services/api";
+import { getEvents, refreshEvents, fetchEventsForDate, createBet } from "../services/api";
 import { useAuth } from "../contexts/AuthContext";
 
 export const CreateBetScreen: React.FC = () => {
@@ -18,32 +18,135 @@ export const CreateBetScreen: React.FC = () => {
   const [title, setTitle] = useState("");
   const [options, setOptions] = useState<string[]>(["", ""]);
   const [stake, setStake] = useState("10");
+  const [eventDate, setEventDate] = useState("2026-01-18");
+  const [includePastEvents, setIncludePastEvents] = useState(false);
   const [events, setEvents] = useState<Event[]>([]);
+  const [eventsSourceDate, setEventsSourceDate] = useState<string | null>(null);
+  const [noEventsForDate, setNoEventsForDate] = useState(false);
   const [loading, setLoading] = useState(false);
-  const { user } = useAuth();
+  const [refreshingEvents, setRefreshingEvents] = useState(false);
+  const { profile } = useAuth();
+
+  const isValidDateString = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value);
+
+  const formatDate = (date: Date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  };
+
+  const isPastDate = (value: string) => {
+    if (!isValidDateString(value)) return false;
+    const today = new Date();
+    const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    const date = new Date(`${value}T00:00:00`);
+    return date < startOfToday;
+  };
 
   useEffect(() => {
-    loadEvents();
-  }, []);
+    if (isValidDateString(eventDate)) {
+      if (isPastDate(eventDate)) {
+        setIncludePastEvents(true);
+      }
+      loadEvents();
+    }
+  }, [eventDate, includePastEvents]);
 
   const loadEvents = async () => {
     try {
-      const data = await getEvents({ status: "upcoming" });
       const customEvent: Event = {
         id: "eventcustom",
         category: "custom",
         title: "Custom Event",
         status: "upcoming",
       };
-      setEvents([customEvent, ...data]);
+
+      const statusFilter = includePastEvents || isPastDate(eventDate) ? undefined : "upcoming";
+      // Try to fetch events for the selected date first
+      let data = await getEvents({ status: statusFilter, date: eventDate });
+      if (data.length > 0) {
+        setNoEventsForDate(false);
+        setEventsSourceDate(null);
+        setEvents([customEvent, ...data]);
+        return;
+      }
+
+      // Fetch fixtures for the selected date and retry
+      await fetchEventsForDate(eventDate);
+      data = await getEvents({ status: statusFilter, date: eventDate });
+      if (data.length > 0) {
+        setNoEventsForDate(false);
+        setEventsSourceDate(null);
+        setEvents([customEvent, ...data]);
+        return;
+      }
+
+      // Fallback: search forward up to 30 days for any upcoming events
+      const baseDate = new Date(`${eventDate}T00:00:00`);
+      for (let i = 1; i <= 30; i += 1) {
+        const nextDate = new Date(baseDate);
+        nextDate.setDate(baseDate.getDate() + i);
+        const nextDateStr = formatDate(nextDate);
+        await fetchEventsForDate(nextDateStr);
+        const nextData = await getEvents({ status: statusFilter, date: nextDateStr });
+        if (nextData.length > 0) {
+          setNoEventsForDate(true);
+          setEventsSourceDate(nextDateStr);
+          setEvents([customEvent, ...nextData]);
+          return;
+        }
+      }
+
+      // If still nothing, search backward up to 30 days for any events (past)
+      for (let i = 1; i <= 30; i += 1) {
+        const prevDate = new Date(baseDate);
+        prevDate.setDate(baseDate.getDate() - i);
+        const prevDateStr = formatDate(prevDate);
+        await fetchEventsForDate(prevDateStr);
+        const prevData = await getEvents({ status: undefined, date: prevDateStr });
+        if (prevData.length > 0) {
+          setNoEventsForDate(true);
+          setIncludePastEvents(true);
+          setEventsSourceDate(prevDateStr);
+          setEvents([customEvent, ...prevData]);
+          return;
+        }
+      }
+
+      // If still nothing, at least show the custom event
+      setNoEventsForDate(true);
+      setEventsSourceDate(null);
+      setEvents([customEvent]);
     } catch (error) {
       console.error("Error loading events:", error);
+    }
+  };
+
+  const handleRefreshEvents = async () => {
+    if (!isValidDateString(eventDate)) {
+      Alert.alert("Error", "Enter a date as YYYY-MM-DD");
+      return;
+    }
+    try {
+      setRefreshingEvents(true);
+      await fetchEventsForDate(eventDate);
+      await loadEvents();
+    } catch (error) {
+      console.error("Error refreshing sports events:", error);
+      Alert.alert("Error", "Failed to refresh sports events");
+    } finally {
+      setRefreshingEvents(false);
     }
   };
 
   const handleEventSelect = (event: Event) => {
     setSelectedEvent(event);
     setTitle("");
+    if (event.category === "sports" && event.teams && event.teams.length >= 2) {
+      setBetType("moneyline");
+      setOptions([event.teams[0], event.teams[1]]);
+    }
   };
 
   const handleOptionChange = (index: number, value: string) => {
@@ -53,12 +156,14 @@ export const CreateBetScreen: React.FC = () => {
   };
 
   const addOption = () => {
+    if (selectedEvent?.category === "sports") return;
     if (betType === "n-way-moneyline" && options.length < 10) {
       setOptions([...options, ""]);
     }
   };
 
   const removeOption = (index: number) => {
+    if (selectedEvent?.category === "sports") return;
     if (betType === "n-way-moneyline" && options.length > 2) {
       const newOptions = options.filter((_, i) => i !== index);
       setOptions(newOptions);
@@ -66,6 +171,9 @@ export const CreateBetScreen: React.FC = () => {
   };
 
   const handleBetTypeChange = (type: BetType) => {
+    if (selectedEvent?.category === "sports") {
+      return;
+    }
     setBetType(type);
     if (type === "moneyline") {
       setOptions(["", ""]);
@@ -107,10 +215,10 @@ export const CreateBetScreen: React.FC = () => {
     if (isNaN(stakeAmount) || stakeAmount <= 0) {
       Alert.alert("Error", "Please enter a valid stake amount");
       return;
-    } else if (stakeAmount >= 25) {
+    } else if (stakeAmount > 25) {
       Alert.alert("Error", "Maximum stake allowed is $25");
       return;
-    } else if (stakeAmount > user?.currentBalance) {
+    } else if (profile && stakeAmount > profile.current_balance) {
       Alert.alert("Error", "Insufficient balance");
       return;
     }
@@ -142,7 +250,40 @@ export const CreateBetScreen: React.FC = () => {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <Text style={styles.sectionTitle}>Select Event</Text>
+      <View style={styles.sectionHeader}>
+        <Text style={styles.sectionTitle}>Select Event</Text>
+        <TouchableOpacity
+          style={[styles.refreshButton, refreshingEvents && styles.refreshButtonDisabled]}
+          onPress={handleRefreshEvents}
+          disabled={refreshingEvents}
+        >
+          <Text style={styles.refreshButtonText}>
+            {refreshingEvents ? "Refreshing..." : "Refresh Sports"}
+          </Text>
+        </TouchableOpacity>
+      </View>
+      <Text style={styles.sectionTitle}>Event Date (YYYY-MM-DD)</Text>
+      <TextInput
+        style={styles.input}
+        value={eventDate}
+        onChangeText={setEventDate}
+        placeholder="2026-01-18"
+        placeholderTextColor="#666"
+        autoCapitalize="none"
+      />
+      {noEventsForDate && !eventsSourceDate && (
+        <Text style={styles.helperText}>
+          No fixtures returned for {eventDate}. Try another date.
+        </Text>
+      )}
+      <TouchableOpacity
+        style={styles.toggleButton}
+        onPress={() => setIncludePastEvents((prev) => !prev)}
+      >
+        <Text style={styles.toggleButtonText}>
+          {includePastEvents ? "Showing past events" : "Show past events"}
+        </Text>
+      </TouchableOpacity>
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
@@ -170,12 +311,31 @@ export const CreateBetScreen: React.FC = () => {
                 <Text style={styles.eventTeams}>
                   {event.teams?.join(" vs ")}
                 </Text>
-                <Text style={styles.eventStatus}>{event.status}</Text>
+                {event.start_time && (
+                  <Text style={styles.eventTime}>
+                    {new Date(event.start_time).toLocaleString()}
+                  </Text>
+                )}
+                {event.status === "finished" ? (
+                  <>
+                    <Text style={styles.pastEventLabel}>Past event</Text>
+                    {event.result?.score && (
+                      <Text style={styles.eventScore}>Final: {event.result.score}</Text>
+                    )}
+                  </>
+                ) : (
+                  <Text style={styles.eventStatus}>{event.status}</Text>
+                )}
               </>
             )}
           </TouchableOpacity>
         ))}
       </ScrollView>
+      {eventsSourceDate && (
+        <Text style={styles.helperText}>
+          Showing events from {eventsSourceDate} (closest with data)
+        </Text>
+      )}
 
       <Text style={styles.sectionTitle}>Bet Type</Text>
       <View style={styles.betTypeContainer}>
@@ -250,6 +410,7 @@ export const CreateBetScreen: React.FC = () => {
             style={styles.optionInput}
             value={option}
             onChangeText={(value) => handleOptionChange(index, value)}
+            editable={selectedEvent?.category !== "sports"}
             placeholder={
               betType === "target-proximity"
                 ? "Target value"
@@ -279,6 +440,7 @@ export const CreateBetScreen: React.FC = () => {
         placeholder="10"
         placeholderTextColor="#666"
       />
+      <Text style={styles.helperText}>Max stake: $25</Text>
 
       <TouchableOpacity
         style={[styles.submitButton, loading && styles.submitButtonDisabled]}
@@ -301,12 +463,33 @@ const styles = StyleSheet.create({
   content: {
     padding: 16,
   },
+  sectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: 16,
+    marginBottom: 8,
+  },
   sectionTitle: {
     fontSize: 16,
     fontWeight: "600",
-    marginTop: 16,
-    marginBottom: 8,
     color: "#fff",
+  },
+  refreshButton: {
+    backgroundColor: "#2a2a2a",
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderWidth: 1,
+    borderColor: "#333",
+  },
+  refreshButtonDisabled: {
+    opacity: 0.6,
+  },
+  refreshButtonText: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "600",
   },
   eventScroll: {
     marginBottom: 8,
@@ -354,9 +537,26 @@ const styles = StyleSheet.create({
     marginBottom: 4,
     color: "#fff",
   },
+  eventTime: {
+    fontSize: 11,
+    color: "#888",
+    marginBottom: 4,
+  },
   eventStatus: {
     fontSize: 12,
     color: "#aaa",
+  },
+  pastEventLabel: {
+    fontSize: 12,
+    color: "#FF9500",
+    fontWeight: "600",
+    marginTop: 4,
+  },
+  eventScore: {
+    fontSize: 12,
+    color: "#fff",
+    fontWeight: "600",
+    marginTop: 2,
   },
   customTypeButton: {
     backgroundColor: "#1e1e1e",
@@ -413,6 +613,27 @@ const styles = StyleSheet.create({
     color: "#fff",
     borderWidth: 1,
     borderColor: "#333",
+  },
+  helperText: {
+    fontSize: 12,
+    color: "#888",
+    marginTop: 6,
+    marginBottom: 8,
+  },
+  toggleButton: {
+    alignSelf: "flex-start",
+    backgroundColor: "#2a2a2a",
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderWidth: 1,
+    borderColor: "#333",
+    marginBottom: 8,
+  },
+  toggleButtonText: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "600",
   },
   optionRow: {
     flexDirection: "row",

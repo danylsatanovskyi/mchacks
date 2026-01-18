@@ -11,7 +11,7 @@ import {
   TextInput,
   Alert,
 } from "react-native";
-import { League, LeagueMember, LeaderboardEntry, AgentMessage } from "../types";
+import { League, LeagueMember, LeaderboardEntry } from "../types";
 import { useAuth } from "../contexts/AuthContext";
 import {
   getLeaderboard,
@@ -53,20 +53,6 @@ const dummyMembers: LeagueMember[] = [
   },
 ];
 
-const dummyAgentMessages: AgentMessage[] = [
-  {
-    type: "roast_top",
-    message: "🔥 Dev User is on fire! But can they keep it up?",
-  },
-  {
-    type: "glaze_top",
-    message: "💎 What a legend! That's how you dominate!",
-  },
-  {
-    type: "roast_bottom",
-    message: "💀 Player3 needs to step it up or pack it up!",
-  },
-];
 
 const getRankEmoji = (rank: number) => {
   switch (rank) {
@@ -91,7 +77,6 @@ export const LeagueScreen: React.FC = () => {
   const [isEditingName, setIsEditingName] = useState(false);
   const [members, setMembers] = useState<LeagueMember[]>(dummyMembers);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
-  const [agentMessages, setAgentMessages] = useState<AgentMessage[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [inviteCode, setInviteCode] = useState("");
@@ -125,7 +110,6 @@ export const LeagueScreen: React.FC = () => {
   useEffect(() => {
     if (user) {
       loadLeaderboard();
-      setAgentMessages(dummyAgentMessages);
     }
   }, [user]);
 
@@ -260,6 +244,8 @@ export const LeagueScreen: React.FC = () => {
 
   const titleWinners = getTitleWinners();
 
+  const formatMoney = (value: number) => value.toFixed(2);
+
   const renderLeaderboardItem = ({
     item,
     index,
@@ -267,13 +253,6 @@ export const LeagueScreen: React.FC = () => {
     item: LeaderboardEntry;
     index: number;
   }) => {
-    const showAgentMessage = index === 0 || index === leaderboard.length - 1;
-    const relevantMessage = agentMessages.find(
-      (msg) =>
-        (index === 0 &&
-          (msg.type === "roast_top" || msg.type === "glaze_top")) ||
-        (index === leaderboard.length - 1 && msg.type === "roast_bottom"),
-    );
 
     return (
       <View>
@@ -310,33 +289,18 @@ export const LeagueScreen: React.FC = () => {
             </View>
           </View>
           <View style={styles.statsContainer}>
-            <Text style={styles.winnings}>${item.total_winnings}</Text>
+            <Text style={styles.winnings}>${formatMoney(item.total_winnings)}</Text>
             <Text
               style={[
                 styles.pnl,
                 item.current_pnl >= 0 ? styles.positive : styles.negative,
               ]}
             >
-              {item.current_pnl >= 0 ? "+" : ""}${item.current_pnl}
+              {item.current_pnl >= 0 ? "+" : "-"}${formatMoney(Math.abs(item.current_pnl))}
             </Text>
-            <Text style={styles.wagered}>Wagered: ${item.total_wagered}</Text>
+            <Text style={styles.wagered}>Wagered: ${formatMoney(item.total_wagered)}</Text>
           </View>
         </View>
-        {showAgentMessage && relevantMessage && (
-          <View
-            style={[
-              styles.agentMessage,
-              relevantMessage.type === "roast_top" && styles.agentMessageRoast,
-              relevantMessage.type === "glaze_top" && styles.agentMessageGlaze,
-              relevantMessage.type === "roast_bottom" &&
-                styles.agentMessageRoast,
-            ]}
-          >
-            <Text style={styles.agentMessageText}>
-              {relevantMessage.message}
-            </Text>
-          </View>
-        )}
       </View>
     );
   };
@@ -862,27 +826,6 @@ const styles = StyleSheet.create({
   wagered: {
     fontSize: 12,
     color: "#aaa",
-  },
-  agentMessage: {
-    marginBottom: 12,
-    padding: 12,
-    borderRadius: 8,
-    marginLeft: 48,
-  },
-  agentMessageRoast: {
-    backgroundColor: "#2a1f1f",
-    borderLeftWidth: 4,
-    borderLeftColor: "#FF3B30",
-  },
-  agentMessageGlaze: {
-    backgroundColor: "#1a252a",
-    borderLeftWidth: 4,
-    borderLeftColor: "#007AFF",
-  },
-  agentMessageText: {
-    fontSize: 14,
-    fontStyle: "italic",
-    color: "#fff",
   },
   memberItem: {
     backgroundColor: "#1e1e1e",

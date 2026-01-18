@@ -42,6 +42,7 @@ export interface Event {
 
 export interface EventResult {
   winner?: string;
+  score?: string;
 }
 
 // Bet types

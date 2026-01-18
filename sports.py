@@ -289,3 +289,52 @@ class SoccerBettingSystem:
         
         for bet in pending_bets:
             self.monitor_bet(bet, check_interval)
+
+
+# Simple wrapper used by database.py to check event resolution
+class BetMonitor:
+    def __init__(self, api_key, user_id, saved_item_id):
+        self.api_key = api_key
+        self.user_id = user_id
+        self.saved_item_id = saved_item_id
+        self.base_url = "https://api.gumloop.com/api/v1"
+
+    def check_bet(self, bet_title):
+        """Check a bet result using Gumloop pipeline."""
+        try:
+            url = f"{self.base_url}/start_pipeline?user_id={self.user_id}&saved_item_id={self.saved_item_id}"
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self.api_key}",
+            }
+            payload = {"sport game result": bet_title}
+            response = requests.post(url, headers=headers, json=payload)
+            response.raise_for_status()
+            run_data = response.json()
+            run_id = run_data.get("run_id")
+            if not run_id:
+                return {"output": "not resolved"}
+
+            poll_url = f"{self.base_url}/get_pl_run?run_id={run_id}&user_id={self.user_id}"
+            max_polls = 30
+            poll_count = 0
+
+            while poll_count < max_polls:
+                result = requests.get(poll_url, headers=headers).json()
+                state = result.get("state")
+                if state == "DONE":
+                    outputs = result.get("outputs", {})
+                    if isinstance(outputs, dict) and outputs:
+                        output_value = list(outputs.values())[0]
+                    else:
+                        output_value = str(outputs)
+                    return {"output": output_value}
+                if state in ["FAILED", "TERMINATED"]:
+                    return {"output": "not resolved"}
+                time.sleep(2)
+                poll_count += 1
+
+            return {"output": "not resolved"}
+        except Exception as e:
+            print(f"ERROR checking bet: {e}")
+            return {"output": "not resolved"}

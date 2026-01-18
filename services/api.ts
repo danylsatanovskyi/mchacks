@@ -59,10 +59,12 @@ export const healthCheck = async (): Promise<{ status: string }> => {
 export const getEvents = async (params?: {
   league?: string;
   status?: string;
+  date?: string;
 }): Promise<Event[]> => {
   const queryParams = new URLSearchParams();
   if (params?.league) queryParams.append("league", params.league);
   if (params?.status) queryParams.append("status", params.status);
+  if (params?.date) queryParams.append("date", params.date);
 
   const query = queryParams.toString();
   return fetchWithAuth(`/events${query ? `?${query}` : ""}`);
@@ -70,6 +72,13 @@ export const getEvents = async (params?: {
 
 export const refreshEvents = async (): Promise<Event[]> => {
   return fetchWithAuth("/events/refresh", { method: "POST" });
+};
+
+export const fetchEventsForDate = async (date: string, limit = 50): Promise<{ inserted: number; count: number }> => {
+  const queryParams = new URLSearchParams();
+  queryParams.append("date", date);
+  queryParams.append("limit", String(limit));
+  return fetchWithAuth(`/events/fetch?${queryParams.toString()}`, { method: "POST" });
 };
 
 // Bets

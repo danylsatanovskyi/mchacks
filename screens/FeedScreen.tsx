@@ -21,6 +21,7 @@ export const FeedScreen: React.FC = () => {
   const [selectedBet, setSelectedBet] = useState<Bet | null>(null);
   const [showBetModal, setShowBetModal] = useState(false);
   const [wagers, setWagers] = useState<Wager[]>([]);
+  const [selectedBetWagers, setSelectedBetWagers] = useState<Wager[]>([]);
   const [wagerUsers, setWagerUsers] = useState<Record<string, User>>({});
   const [loadingWagers, setLoadingWagers] = useState(false);
   const [showResolutionModal, setShowResolutionModal] = useState(false);
@@ -96,6 +97,7 @@ export const FeedScreen: React.FC = () => {
     setLoadingWagers(true);
     try {
       const wagersData = await getBetWagers(bet.id);
+      setSelectedBetWagers(wagersData);
       // Store wagers in a map keyed by bet_id for profit calculation
       setWagers((prev) => {
         const newWagers = [...prev.filter(w => w.bet_id !== bet.id), ...wagersData];
@@ -117,7 +119,7 @@ export const FeedScreen: React.FC = () => {
       setWagerUsers(usersMap);
     } catch (error) {
       console.error("Error loading wagers:", error);
-      setWagers([]);
+      setSelectedBetWagers([]);
       setWagerUsers({});
     } finally {
       setLoadingWagers(false);
@@ -213,7 +215,7 @@ export const FeedScreen: React.FC = () => {
                       onPress={() => {
                         setShowBetModal(false);
                         setSelectedBet(null);
-                        setWagers([]);
+                        setSelectedBetWagers([]);
                         setWagerUsers({});
                       }}
                     >
@@ -258,18 +260,18 @@ export const FeedScreen: React.FC = () => {
                   <View style={styles.modalSection}>
                     <View style={styles.modalSectionHeader}>
                       <Text style={styles.modalSectionTitle}>
-                        Participants ({wagers.length})
+                        Participants ({selectedBetWagers.length})
                       </Text>
                       <Text style={styles.potAmount}>
-                        Pot: ${wagers.reduce((sum, w) => sum + w.stake, 0)}
+                        Pot: ${selectedBetWagers.reduce((sum, w) => sum + w.stake, 0)}
                       </Text>
                     </View>
                     {loadingWagers ? (
                       <Text style={styles.loadingText}>Loading wagers...</Text>
-                    ) : wagers.length === 0 ? (
+                    ) : selectedBetWagers.length === 0 ? (
                       <Text style={styles.emptyWagersText}>No wagers placed yet</Text>
                     ) : (
-                      wagers.map((wager) => {
+                      selectedBetWagers.map((wager) => {
                         const wagerUser = wagerUsers[wager.user_id];
                         return (
                           <View key={wager.id} style={styles.wagerRow}>
