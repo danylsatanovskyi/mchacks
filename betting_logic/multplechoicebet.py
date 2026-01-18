@@ -1,4 +1,8 @@
+from __future__ import annotations
+from typing import Dict, Optional, Any
 import pandas as pd
+
+from usergroup import UserGroup  # expects User + UserGroup + apply_bet_result in usergroup.py
 
 
 class MultipleChoiceBetting:
@@ -25,10 +29,14 @@ class MultipleChoiceBetting:
 
     Notes:
       - If Mwin == 0 (nobody picked the correct outcome), payoffs are 0 by default.
-        You can change this policy if desired (e.g., refund everyone, or roll over).
     """
 
-    def __init__(self, bets: pd.DataFrame, default_cut: float | None = None, coerce_choice_to_str: bool = True):
+    def __init__(
+        self,
+        bets: pd.DataFrame,
+        default_cut: float | None = None,
+        coerce_choice_to_str: bool = True,
+    ):
         self.bets = bets.copy()
         self.default_cut = default_cut
         self.coerce_choice_to_str = coerce_choice_to_str
@@ -68,12 +76,23 @@ class MultipleChoiceBetting:
             bad_ids = self.bets.index[((self.bets["cut"] < 0) | (self.bets["cut"] > 1))].tolist()
             raise ValueError(f"Cut out of [0,1] for player(s): {bad_ids}")
 
-    def settle(self, outcome) -> pd.DataFrame:
+    def settle(
+        self,
+        outcome: Any,
+        group: Optional[UserGroup] = None,
+        user_names: Optional[Dict[str, str]] = None,
+    ) -> pd.DataFrame:
+        """
+        Returns DataFrame with payoff + pnl.
+
+        If `group` is provided, updates each User in the group using:
+            user.apply_bet_result(bet_amount, bet_pnl, did_win)
+        and recomputes group titles (ties allowed).
+
+        user_names: optional mapping {player_id: display_name} used when auto-creating users.
+        """
         # Normalize outcome to match df choice normalization
-        if self.coerce_choice_to_str:
-            outcome_key = str(outcome).strip()
-        else:
-            outcome_key = outcome
+        outcome_key = str(outcome).strip() if self.coerce_choice_to_str else outcome
 
         df = self.bets.copy()
 
@@ -91,23 +110,59 @@ class MultipleChoiceBetting:
             )
 
         pnl = (payoff - df["amount"]).rename("pnl")
+        out = pd.DataFrame({"payoff": payoff, "pnl": pnl}, index=df.index)
 
-        return pd.DataFrame({"payoff": payoff, "pnl": pnl}, index=df.index)
+        # ----- NEW: increment users + group -----
+        if group is not None:
+            names = user_names or {}
+
+            for player_id, row in df.iterrows():
+                amount = float(row["amount"])
+                bet_pnl = float(out.loc[player_id, "pnl"])
+                did_win = (row["choice"] == outcome_key) and (amount > 0)
+
+                user = group.get_or_create_user(player_id, name=names.get(player_id))
+                user.apply_bet_result(bet_amount=amount, bet_pnl=bet_pnl, did_win=did_win)
+
+            group.recompute_titles()
+
+        return out
 
 
 # ---- Example usage ----
 if __name__ == "__main__":
+    p = 0.02
+
     bets = pd.DataFrame(
         {
             "choice": ["A", "B", "C", "B", "A"],
             "amount": [10, 5, 20, 10, 15],
-            "cut": [0.10, 0.10, 0.10, 0.10, 0.10],
+            "cut": [p, p, p, p, p],
         },
         index=["p1", "p2", "p3", "p4", "p5"],
     )
 
     print(bets, '\n')
+
+    group = UserGroup()
+    group.get_or_create_user("p1", name="Alice")
+    group.get_or_create_user("p2", name="Bob")
+    group.get_or_create_user("p3", name="Cara")
+    group.get_or_create_user("p4", name="Dan")
+    group.get_or_create_user("p5", name="Eve")
+    group.recompute_titles()
+
+    print("=== BEFORE ===")
+    print(group)
+
     system = MultipleChoiceBetting(bets)
-    # Suppose the correct outcome is "B"
-    result = system.settle("B")
+    result = system.settle("B", group=group)
+
+    print("\n=== SETTLEMENT OUTPUT ===")
     print(result)
+
+    print("\n=== AFTER ===")
+    for u in group.users:
+        print(u)
+    print()
+    print(group)

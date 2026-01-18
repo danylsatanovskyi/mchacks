@@ -1,49 +1,27 @@
+from __future__ import annotations
+from typing import Dict, Optional
 import pandas as pd
 import numpy as np
+
+from usergroup import UserGroup  # expects User + UserGroup + apply_bet_result in usergroup.py
 
 
 class TargetProximityBet:
     """
-    Proximity-based betting using the same normalization idea as earlier, but with
-    "amount-adjusted by proximity" determining each player's effective share of the pool.
+    Proximity-based betting using proximity-weighted effective shares of the pool.
 
-    Inputs (DataFrame):
-      - index: player_id
-      - columns:
-          * "guess"  : numeric guess g_i
-          * "amount" : numeric >= 0 (buy-in / stake x_i)
-          * "cut"    : per-player cut p_i in [0,1] (optional if default_cut is provided)
-
-    Parameters:
-      - s (float): proximity decay scale (default 3.0). Larger s => flatter payouts.
-      - default_buy_in (float|None): if provided, fills missing "amount" values.
-      - default_cut (float|None): if provided, fills missing "cut" values.
-
-    Proximity weighting (Model A):
-      - target (true value) T
+    Same payout structure:
       - error e_i = |g_i - T|
-      - proximity factor q_i = exp(-e_i / s)
+      - proximity q_i = exp(-e_i / s)
+      - effective_weight_i = amount_i * q_i
+      - M = sum(amount_i)
+      - W = sum(effective_weight_i)
+      - payoff_i = (1 - cut_i) * effective_weight_i * (M / W)   if M>0 and W>0 else 0
+      - pnl_i = payoff_i - amount_i
 
-    Effective winning "pool" for normalization:
-      - For each player: effective_weight_i = amount_i * q_i
-      - Let:
-          M    = sum(amount_i) over all players (total pool)
-          W    = sum(effective_weight_i) over all players
-
-    Payoff:
-      - If W == 0 or M == 0: payoff_i = 0
-      - Otherwise:
-          payoff_i = (1 - cut_i) * amount_i * q_i * (M / W)
-
-    Output (DataFrame, same index):
-      - "payoff": total payout received from the pool
-      - "pnl"   : payoff - amount
-      - (extras included for debugging/UX): "error", "proximity", "effective_weight"
-
-    Note:
-      - This is NOT exactly the same as the binary formula with Mwin, because there is
-        no single "winning choice" pool. Here, proximity creates a continuous winning weight,
-        and W plays the role of the "winning pool" in the same normalization structure.
+    NEW:
+      - settle(target, group=..., user_names=...) updates each user's stats using
+        user.apply_bet_result(...) and recomputes tie-aware group titles.
     """
 
     def __init__(
@@ -103,13 +81,18 @@ class TargetProximityBet:
             bad_ids = self.bets.index[((self.bets["cut"] < 0) | (self.bets["cut"] > 1))].tolist()
             raise ValueError(f"Cut out of [0,1] for player(s): {bad_ids}")
 
-    def settle(self, target: float) -> pd.DataFrame:
+    def settle(
+        self,
+        target: float,
+        group: Optional[UserGroup] = None,
+        user_names: Optional[Dict[str, str]] = None,
+    ) -> pd.DataFrame:
         T = float(target)
         df = self.bets.copy()
 
         # Compute proximity terms
         error = (df["guess"] - T).abs()
-        proximity = np.exp(-error / self.s)  # exp(y) = e^y
+        proximity = np.exp(-error / self.s)
 
         amount = df["amount"].astype(float)
         cut = df["cut"].astype(float)
@@ -121,8 +104,7 @@ class TargetProximityBet:
         payoff = pd.Series(0.0, index=df.index, name="payoff")
 
         if M > 0 and W > 0:
-            payoff = (1.0 - cut) * effective_weight * (M / W)
-            payoff = payoff.rename("payoff")
+            payoff = ((1.0 - cut) * effective_weight * (M / W)).rename("payoff")
 
         pnl = (payoff - amount).rename("pnl")
 
@@ -136,24 +118,62 @@ class TargetProximityBet:
             },
             index=df.index,
         )
+
+        # ----- NEW: increment users + group -----
+        if group is not None:
+            names = user_names or {}
+
+            for player_id in df.index:
+                bet_amount = float(amount.loc[player_id])
+                bet_pnl = float(out.loc[player_id, "pnl"])
+
+                # Define "win" for proximity bets:
+                # Everyone is "in the winning pool" to some degree, but for your stats we need a binary.
+                # We treat "win" as non-negative pnl (profit or break-even).
+                did_win = (bet_pnl >= 0.0) and (bet_amount > 0)
+
+                user = group.get_or_create_user(player_id, name=names.get(player_id))
+                user.apply_bet_result(bet_amount=bet_amount, bet_pnl=bet_pnl, did_win=did_win)
+
+            group.recompute_titles()
+
         return out
 
 
-p = 0.02
-buyin = 20
-
 # ---- Example usage ----
 if __name__ == "__main__":
+    p = 0.02
+    buyin = 20
+
     bets = pd.DataFrame(
         {
             "guess": [11, 14, 20, 7],
-            "amount": [buyin, buyin, buyin, buyin],  # buy-in
+            "amount": [buyin, buyin, buyin, buyin],
             "cut": [p, p, p, p],
         },
         index=["p1", "p2", "p3", "p4"],
     )
 
     print(bets, '\n')
+
+    group = UserGroup()
+    group.get_or_create_user("p1", name="Alice")
+    group.get_or_create_user("p2", name="Bob")
+    group.get_or_create_user("p3", name="Cara")
+    group.get_or_create_user("p4", name="Dan")
+    group.recompute_titles()
+
+    print("=== BEFORE ===")
+    print(group)
+
     system = TargetProximityBet(bets, s=3.0)
-    result = system.settle(target=12)
+    result = system.settle(target=12, group=group)
+
+    print("\n=== SETTLEMENT OUTPUT (payoff, pnl) ===")
     print(result[["payoff", "pnl"]])
+
+    print("\n=== AFTER ===")
+    for u in group.users:
+        print(u)
+    print()
+    print(group)
